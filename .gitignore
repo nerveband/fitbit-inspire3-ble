@@ -1,0 +1,15 @@
+# captures and anything derived from a real device stay out of git
+*.pklg
+*.btsnoop
+*.log
+btsnoop_hci.log
+bugreport*.zip
+emu/
+keys/
+blescan
+bleenum
+blegatt
+
+# working notes with real device identifiers stay local
+PROTOCOL.md
+CAPTURE.md
