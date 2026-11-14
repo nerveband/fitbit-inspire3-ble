@@ -1,108 +1,116 @@
 # 3. The GATT map
 
-This is what the tracker offers when a Mac connects to it and asks for everything. It
-was read with CoreBluetooth, the macOS Bluetooth API, with the phone switched off so
-the tracker was free.
+Read from a Mac with CoreBluetooth, with the phone's Bluetooth off so the tracker was
+free. Five services, 23 characteristics. Properties are hex: `0x02` read, `0x04` write
+without response, `0x08` write, `0x10` notify, `0x12` read and notify, `0x20` indicate,
+`0x30` combinations.
 
-The tracker advertises as `Inspire 3` with service `FD62`. It only advertises while no
-phone holds it.
+Advertising: name `Inspire 3`, advertised service `FD62`. The tracker advertises only when
+no phone holds the link, which is why the phone's Bluetooth has to be off for this work.
 
-## Services and characteristics
+## Connection parameters
 
-Five services, 23 characteristics. `props` is in hex. `0x02` read, `0x04` write without
-response, `0x08` write, `0x10` notify, `0x12` read and notify, `0x20` indicate.
+| Item | Value |
+|---|---|
+| ATT MTU requested by the phone | 527 |
+| ATT MTU granted by the tracker | 247 |
+| Largest notification value | 244 bytes |
+| GattLink reset write accepted | yes |
+| Notifications received without a bond | 0 |
 
-### `180A` Device Information
+## `180A`, Device Information
 
-This one is standard Bluetooth. Every device has something like it.
+Standard Bluetooth. Every value reads with no key and no bond.
 
-| Characteristic | Meaning | Read value |
+| Characteristic | Name | Value |
 |---|---|---|
-| `2A29` | maker | `Fitbit` |
+| `2A29` | manufacturer | `Fitbit` |
 | `2A24` | model number | `63` |
-| `2A26` | firmware | `63.<version>` |
-| `2A25` | serial style id | changes between connections |
-| `2A27` | hardware version | empty |
-| `2A28` | software version | empty |
-| `2A23` | system id | all zeros |
-| `2A2A` | radio certificate flag | `00` |
+| `2A26` | firmware revision | `63.<version>` |
+| `2A25` | serial number | rotates between connections |
+| `2A27` | hardware revision | empty |
+| `2A28` | software revision | empty |
+| `2A23` | system id | `0000000000000000` |
+| `2A2A` | IEEE regulatory flag | `00` |
 | `2A50` | plug and play id | zeros |
 
-All of it reads with no key and no pairing. The serial style value changed between two
-connections, so it is a rotating id, not a fixed serial.
+The serial value changed between two connections, so it is a rotating identifier and not
+a fixed serial. Do not treat it as a stable device id.
 
-### `ABBAFD00-E56A-484C-B832-8B17CF6CBFE8`
+## `ABBAFD00-E56A-484C-B832-8B17CF6CBFE8`, status pair
 
-The `abbaXXXX` family is a Fitbit naming pattern. This one looks like a control or
-status service.
+Fitbit's `abbaXXXX` naming family. Two readable values and one plain read.
 
-| Characteristic | props | Notes |
+| Characteristic | Props | Value read |
 |---|---|---|
-| `ABBAFD01` | 0x12 | readable, answers `180000004800f70000` |
-| `ABBAFD02` | 0x12 | readable, answers `01000000000000` |
-| `ABBAFD03` | 0x02 | readable |
+| `ABBAFD01` | `0x12` | `180000004800f70000`, 9 bytes |
+| `ABBAFD02` | `0x12` | `01000000000000`, 7 bytes |
+| `ABBAFD03` | `0x02` | short value |
 
-### `ABBAFF00-E56A-484C-B832-8B17CF6CBFE8`
+`ABBAFD01` looks like a version or capability block: `0x00000018` is 24, `0x00000048` is
+72, `0x000000f7` is 247, which matches the ATT MTU. The rest is not identified.
 
-This is the data pipe. Two characteristics, one each way.
+## `ABBAFF00-E56A-484C-B832-8B17CF6CBFE8`, the data pipe
 
-| Characteristic | props | Use |
+The only service that matters for data.
+
+| Characteristic | Props | Direction |
 |---|---|---|
-| `ABBAFF01` | 0x04 | phone writes GattLink bytes here |
-| `ABBAFF02` | 0x10 | tracker pushes GattLink bytes here |
+| `ABBAFF01` | `0x04` write without response | phone writes GattLink bytes here |
+| `ABBAFF02` | `0x10` notify | tracker pushes GattLink bytes here |
 
-### `AC2F0045-8182-4BE5-91E0-2992E6B40EBB`
+Write without response means no per packet ACK at the ATT level. GattLink supplies the
+reliability instead, which is why its ACK logic exists.
 
-Not identified yet. It has one readable and one writable setting.
+## `AC2F0045-8182-4BE5-91E0-2992E6B40EBB`, unidentified
 
-| Characteristic | props |
+| Characteristic | Props |
 |---|---|
-| `AC2F0145` | 0x02 read |
-| `AC2F2745` | 0x08 write |
+| `AC2F0145` | `0x02` read |
+| `AC2F2745` | `0x08` write |
 
-### `4EEE1C00-4133-479B-8663-02C84BDC14BE`
+Purpose unknown. It is not the sync path: no traffic appears on it during a sync.
 
-Seven characteristics with mixed abilities. Purpose unknown. Kept here so someone else
-does not have to rediscover it.
+## `4EEE1C00-4133-479B-8663-02C84BDC14BE`, unidentified
 
-| Characteristic | props |
+Seven characteristics with mixed properties. Listed so nobody has to rediscover them.
+
+| Characteristic | Props |
 |---|---|
-| `4EEE1C01` | 0x30 |
-| `4EEE1C02` | 0x0c |
-| `4EEE1C03` | 0x02 |
-| `4EEE1C04` | 0x20 |
-| `4EEE1C05` | 0x10 |
-| `4EEE1C06` | 0x1a |
-| `4EEE1C07` | 0x2a |
+| `4EEE1C01` | `0x30` |
+| `4EEE1C02` | `0x0c` |
+| `4EEE1C03` | `0x02` |
+| `4EEE1C04` | `0x20` |
+| `4EEE1C05` | `0x10` |
+| `4EEE1C06` | `0x1a` |
+| `4EEE1C07` | `0x2a` |
 
-## Handles, if you work from a capture
+A plausible guess is a debug or log channel, but nothing confirms it. Do not build on it.
 
-In the phone capture the data pipe showed up on handles `0x0042` and `0x0044`. Handles
-are numbers the operating system assigns per connection. They change between
-connections, so always match on UUID, not on handle.
+## Handles versus UUIDs
 
-## What happens when a stranger connects
+In the phone capture the pipe used handles `0x0042` and `0x0044` on one connection and
+different numbers on the next. Handles are assigned per connection by the operating
+system. Always match characteristics by UUID. A parser that matches handles breaks on
+reconnect, which cost an hour during this work.
 
-| Action | Result |
+## Why a laptop cannot open the pipe
+
+Bluetooth pairing normally starts when a client asks for a value that needs a secure
+link. On this tracker every readable value is readable by anyone, so the operating system
+never starts pairing, so the tracker never learns the laptop is a friend.
+
+The probe sequence and its result:
+
+| Step | Result |
 |---|---|
-| Connect with no pairing | allowed |
-| Read Device Information | allowed, every value |
-| Read `ABBAFD01`, `ABBAFD02` | allowed |
-| Subscribe to `ABBAFF02` | allowed, no error |
+| Connect, no pairing | accepted |
+| Read all of `180A` | full values returned |
+| Read `ABBAFD01`, `ABBAFD02`, `ABBAFD03` | values returned |
+| Subscribe to `ABBAFF02` | accepted |
 | Write `0x80` reset request to `ABBAFF01` | accepted, no error |
-| Read anything after that | nothing comes back |
-| Notifications | zero, in every attempt |
+| Wait for the reset complete, `0x81` | nothing |
+| Wait for any DTLS record | nothing |
 
-So the tracker is polite to strangers and gives them nothing. The data pipe only works
-with a phone that has bonded with it, which is why a laptop cannot open the link even
-though the open source code for the protocol is sitting right there.
-
-## Why pairing cannot be forced from a laptop
-
-Bluetooth pairing normally starts when something asks for a value it is not allowed to
-see without a secure link. On this tracker, every readable value is readable by
-anybody. There is no locked door to knock on, so the operating system never starts
-pairing, so the tracker never learns the laptop is a friend, so the data pipe stays
-quiet.
-
-That is a design choice by Fitbit, and a good one from their side.
+So the pipe is open for writes and mute for readers. The tracker only speaks to a peer it
+has bonded with, and it only runs the DTLS handshake with one.

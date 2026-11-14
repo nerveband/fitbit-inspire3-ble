@@ -1,94 +1,118 @@
-# 5. Keys: where they live and why one is out of reach
+# 5. Keys: the chain, the storage, the three doors
 
-There are three different secrets in play. Two are public. One is not, and that one is
-the whole story.
+Three secrets exist. Two are shipped in every copy of the app. One is different for every
+tracker, and that one closes the data.
 
-## Secret one and two: the shop keys
+## The two shop keys
 
-Every copy of the Fitbit app, on every phone, ships with two keys:
+Both are in the Apache 2.0 GoldenGate repo, in
+`platform/android/goldengate/GoldenGateBindings/src/main/kotlin/com/fitbit/goldengate/bindings/dtls/`:
 
-| Name | Who uses it | Public? |
+| Resolver | Key | Purpose |
 |---|---|---|
-| `hello` | a self test during development | yes, in the open source repo |
-| `BOOTSTRAP` | the first secure session during pairing | yes, in the open source repo |
+| `HelloTlsKeyResolver` | fixed test key | a development self test |
+| `BootstrapTlsKeyResolver` | fixed bootstrap key | the first secure session during setup |
 
-They are in the GoldenGate repo, files `HelloTlsKeyResolver.kt` and
-`BootstrapTlsKeyResolver.kt`, Apache 2.0. Anyone can read them. They are the same in
-every install, so they are not really secrets.
+Both are identical on every install. Anyone can read them from the repository. They are
+not secrets in any useful sense.
 
-`BOOTSTRAP` is how a brand new tracker and a brand new phone say hello safely. It lets
-the two sides swap public keys and prove who they are, and it is the moment the per
-device key can be agreed.
+The bootstrap key is how a new tracker and a new phone establish a session before the per
+device key exists. During setup, the tracker and the phone use it to exchange enough
+information to provision the real key, which is the part that is not public.
 
-## Secret three: the per device key
+## The per device key
 
-This one is 16 bytes, different for every tracker, and it guards the actual data.
+16 bytes, one per tracker, and it is what the data session uses.
 
-Facts, all checked:
-
-| Fact | How it was checked |
+| Claim | Evidence |
 |---|---|
-| It never crosses the Bluetooth link | a full pairing capture was searched for it |
-| It is not hidden in the bootstrap session | every 16 byte window of that session was tried as a key and all failed |
-| The app asks Google's cloud for it | the app code calls a device keys endpoint |
-| Google's public API does not offer it | the API has 27 methods, none returns a key |
-| The tracker has its own copy | otherwise it could not decrypt what the phone sends |
+| It is not on the Bluetooth link | searched the whole capture for it, and for a shifted copy |
+| It is not inside the bootstrap session | 2,861 candidate slices of that session were tried, all failed |
+| The app gets it from the cloud | `BowieApi.fetchKey` and the device keys endpoint exist in the app |
+| The public API will not give it | 27 methods, no key endpoint |
+| The tracker holds a copy | it decrypts what the phone sends, so it must |
+| The phone holds a copy | it must answer the handshake, so it must |
 
-## Where the phone keeps it
+Note the direction: the tracker opens the secure session and presents its key id. The
+phone resolves that id to a key. So the phone must hold the key before the tracker
+connects, which is why the app keeps a store indexed by key id.
 
-On Android the Google Health app puts the key in a small key store file in its own
-private folder. This is not the hardware protected Android key store. It is a plain
-file with a password:
+## The store, on Android
 
-| Detail | Value |
-|---|---|
-| File name | `MobileDataKeyManagerKeyStore.keystore` |
-| File type | BKS, a Java key store format |
-| Entry name | the key id as a decimal number |
-| Password | phone id plus an app instance id plus the app's user number |
+From the decompiled app, version 5.12.1.
 
-That matters because a plain file with a password can be opened by anyone who can read
-the file and the password. On Android that means root. No chip level trickery, no
-hardware key store barrier.
-
-On iOS the same key sits in the phone keychain, which needs a jailbreak to read.
-
-## Why the cloud will not hand it over
-
-This was checked properly, not guessed. Google publishes a machine readable list of
-everything their health API can do. Both the stable and the beta channel have 27
-methods. The only two about devices are:
-
-| Method | Returns |
-|---|---|
-| list paired devices | name, model, battery, last sync, features, Bluetooth address |
-| get one paired device | the same fields for one device |
-
-No key. No secret. No provisioning call. So this is not a permission problem, it is a
-designed absence. The key belongs to the app, not to the API.
-
-## Why the tracker will not hand it over
-
-The tracker holds the key in its own memory. Reading it would mean taking the tracker
-apart and reading the flash chip. That is possible in principle, and was done on 2015
-era Fitbits with no read protection. It has not been publicly done on current models.
-It also destroys the tracker, which is not a good trade for a step counter.
-
-## Why the open source stack does not help
-
-GoldenGate is Apache 2.0. The framing, the ACKs, the CoAP layer, the cipher suite name,
-all readable. Having the code is not the same as having the key. This is the point
-people miss: the protocol being open does not make the data open, because the security
-is one shared secret sitting outside the protocol.
-
-## The only three doors
-
-| Door | Needs | Result |
+| Item | Value | Where |
 |---|---|---|
-| Rooted Android phone that the app runs on | a phone with an unlockable bootloader | key readable from a file |
-| Jailbroken iPhone | a jailbreak | key readable from the keychain |
-| Hashed out by hand | nothing | no, the key is not derivable |
+| Type | `BKS`, a Java key store format | `xjl.<init>`, field `a` |
+| File name | `MobileDataKeyManagerKeyStore.keystore` | `xjl.java:93` |
+| Location | the app's private files directory | `Context.getFilesDir` |
+| Entry alias | the key id as a decimal string | `pbz.java:54`, `b` method |
+| Entry value | a `SecretKey`, no certificate chain | `pbz.java:54`, `setKeyEntry(alias, key, password, null)` |
+| Password | `Settings.Secure android_id` plus the mobile data instance id plus `Process.myUid()` | `xjl.java:93` |
 
-Everything else, sniffing, cloud APIs, protocol knowledge, cleverness, stops at the same
-wall. That is not pessimism, it is what three separate experiments showed. See
-[6-what-we-tried.md](6-what-we-tried.md).
+That password recipe is the weak point, and it is the reason root helps. `android_id` is
+readable, the instance id is in app storage, the uid is a small number. None of it is in
+hardware. A BKS file with a known password opens with any Java key store library.
+
+The store is filled from the device record the app already caches from the cloud:
+`user/-/devices/device/<id>` returns a `keys` array, and the app writes each entry by id.
+
+`BowieApi.fetchKey` exists in the code but has no live call site in 5.12.1. It is dead
+code, or a fallback that never runs. Do not plan around it.
+
+## The store, on iOS
+
+The same key lives in the app's keychain item. Reading it needs a jailbreak, or a
+keychain dump from a backup, which modern iOS does not allow for this kind of item.
+
+## Why the public API cannot supply it
+
+Google publishes a machine readable description of the Health API. Both channels:
+
+| Channel | URL |
+|---|---|
+| v4 | `health.googleapis.com/$discovery/rest?version=v4` |
+| v4beta | `health.googleapis.com/$discovery/rest?version=v4beta` |
+
+Both list 27 methods. Two concern devices:
+
+| Method | Scope | Returns |
+|---|---|---|
+| `users.pairedDevices.list` | `googlehealth.settings.readonly` | name, model, battery, last sync, features, Bluetooth address |
+| `users.pairedDevices.get` | `googlehealth.settings.readonly` | the same for one device |
+
+No method returns a key, a secret, or a provisioning token. This is not a permission
+problem that a broader scope would solve. The capability is absent.
+
+## Why the tracker will not supply it
+
+The key is in the tracker's memory. Reading it means reading the flash chip, which means
+opening the case, and on current models it likely means defeating read protection. It was
+done on 2015 era Fitbits. There is no public report of it on an Inspire 3, and the attempt
+destroys the tracker.
+
+## The three doors
+
+| Door | Requirement | Effort | Result |
+|---|---|---|---|
+| Rooted Android that has the app signed in and the tracker paired | an unlockable bootloader | hours | key readable from a file |
+| Jailbroken iPhone | a working jailbreak for that iOS version | hours | key readable from the keychain |
+| Anything else | none | any | no key |
+
+There is no fourth door. The protocol being open source does not help, because the
+security is one shared secret that sits outside the protocol.
+
+## What the key unlocks, and what it does not
+
+With the key you can decrypt the DTLS session and read or replay CoAP. That gives live
+activity, sync dumps, and control requests, all local, at the native rate.
+
+With the key you cannot read another person's tracker, because each tracker has its own
+key, and you cannot read the account, because account data goes over the internet, not
+over Bluetooth.
+
+## Handling the key
+
+If you extract a key: it is a credential for one device. Keep it out of git, out of logs,
+and out of any note you publish. If it leaks, the tracker can be read by anyone in radio
+range who also has the framing, which is public.

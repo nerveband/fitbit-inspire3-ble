@@ -1,97 +1,123 @@
-# 7. Reproduce it yourself
+# 7. Reproduce every measurement
 
-Only on hardware you own. Every step below was run on a tracker and a phone belonging to
-the author.
+Run this only on hardware you own. Every step was run on the author's own tracker, phone
+and Mac.
 
-## What you need
+## Tools you need
 
-| Item | Notes |
+| Tool | For |
 |---|---|
-| The tracker | tested on an Inspire 3, firmware `63.<version>` |
-| A phone with the Google Health app | Android is easier to capture from |
-| A Mac | for the Mac side steps, macOS with Xcode command line tools |
-| Optional: rooted Android phone | only for the key step, and only your own phone |
+| Xcode command line tools | compiling the Swift probes on macOS |
+| Python 3 | the capture parsers |
+| `adb` | Android capture |
+| PacketLogger from Additional Tools for Xcode | iOS capture |
+| jadx | reading the app code |
 
-## Step 1: capture the phone side
+## Step 1: capture the traffic
 
-Android, no root needed:
+### Android, no root
 
-1. Turn on Developer options, then turn on "Enable Bluetooth HCI snoop log".
-2. Toggle Bluetooth off and on so logging starts.
-3. Open the app, pull to refresh, wait for a sync.
-4. Start a workout that records heart rate, run it two minutes, stop, sync again.
-5. Run `adb bugreport bugreport.zip` and send the file to your computer.
+```
+adb shell settings put secure bluetooth_btsnoop_default_mode full
+adb shell svc bluetooth disable && adb shell svc bluetooth enable
+# open the app, pull to refresh, sync, run a workout for two minutes, sync again
+adb bugreport bugreport.zip
+unzip -l bugreport.zip | grep -i btsnoop
+```
 
-The log is inside the zip under `FS/data/misc/bluetooth/logs/`.
+The log is at `FS/data/misc/bluetooth/logs/` inside the zip. The first two commands write
+the snoop setting and restart the radio so logging begins.
 
-iPhone: install Apple's Bluetooth logging profile, then use PacketLogger from
-Additional Tools for Xcode. Save as `.pklg`.
+### iPhone
+
+Install Apple's Bluetooth logging profile, then use PacketLogger from Additional Tools for
+Xcode. Save as `.pklg`.
 
 ## Step 2: decode it
 
 ```
 python3 tools/decode_sessions.py capture.pklg
-```
-
-You get a per connection report: peer name, MTU, the number of DTLS records, the identity
-string in cleartext, and a five second histogram of application records. The steady 5 per
-5 seconds is the once per second poll.
-
-If you also want the GATT table from the phone's point of view:
-
-```
 python3 tools/analyze_capture.py capture.pklg
 ```
 
-## Step 3: talk to the tracker from a Mac
+`decode_sessions.py` needs `parse_pklg.py` in the same directory. It prints, per connection:
+MTU negotiation, UDP endpoints, a DTLS record census, the clear text key identity, and a
+five second histogram of application records.
 
-Switch the phone's Bluetooth off first. The tracker only advertises when nothing holds
-it.
+Expected output shape:
 
 ```
-swiftc -O tools/blescan.swift -o blescan && ./blescan 15      # just look around
-swiftc -O tools/bleenum.swift -o bleenum && ./bleenum inspire 20   # services and reads
-swiftc -O tools/blegatt.swift -o blegatt && ./blegatt inspire 20 15 # reset poke
+handle 0x0058 udp=596 up=293 down=293 sizes=[(215, 190), (58, 95), ...]
+MTU: request 527 from phone, response 247 from tracker
+DTLS: ClientHello suites=0xc0a4 0x00a8 0xc037 0x00ff, ServerHello picked 0xc0a4
+identity: MD-<keyid>-<expiry>
 ```
 
-Expect: identity reads succeed, the GattLink reset is accepted, and nothing comes back.
-If you see notifications, you have found something new, and it would be very interesting.
+If your tool prints handles instead of UUIDs, fix that first. Handles change per
+connection.
 
-## Step 4: the key, only on your own device
+## Step 3: probe the tracker from a Mac
 
-Needs a rooted Android phone with the app signed in and the tracker paired.
+Turn the phone's Bluetooth off first, or the tracker will not advertise.
+
+```
+swiftc -O tools/blescan.swift -o blescan && ./blescan 15
+swiftc -O tools/bleenum.swift -o bleenum && ./bleenum Inspire 20
+swiftc -O tools/blegatt.swift -o blegatt && ./blegatt Inspire 20 15
+```
+
+| Tool | What it does |
+|---|---|
+| `blescan` | lists advertisers, names, RSSI, advertised services |
+| `bleenum` | connects, lists services and characteristics, reads every readable value |
+| `blegatt` | same, then subscribes to `ABBAFF02` and writes the GattLink reset |
+
+Expected with an unbonded Mac: identity values returned, reset write accepted, nothing
+sent back. If a notification ever arrives, something new has been found.
+
+## Step 4: read the key, own device only
+
+Needs a rooted Android phone with the app signed in and the tracker paired at least once.
 
 ```
 python3 tools/extract_mobile_data_key.py
 ```
 
-It reads the app's key store file, builds the password from the phone id, the app
-instance id and the user number, opens the store, and prints the key for each entry.
+The script reads `MobileDataKeyManagerKeyStore.keystore` from the app's private directory
+through `adb`, builds the password from `android_id`, the mobile data instance id and the
+uid, opens the BKS store, and prints each entry alias with its key length.
 
-Then you have what you need to build a client that decrypts the link. This repo does not
-include that client.
+Needs `pyjks`. Without root the file cannot be read at all, so the script fails at the
+first step, which is the intended behaviour.
 
-## Step 5: confirm the stack from the app code
+## Step 5: check a claim against the app code
 
-Decompile the app and look for these strings. They are what the notes in this repo are
-based on.
+```
+jadx -d jadx_out app.apk
+grep -rn "liveactivity" jadx_out/sources
+grep -rn "MobileDataKeyManagerKeyStore" jadx_out/sources
+grep -rn "interval(1000L" jadx_out/sources
+```
 
-| Look for | Where |
+| Claim | Find it at |
 |---|---|
-| `MobileDataTlsKeyResolver` | shows the identity format and the key provider |
-| `LiveDataCommandsHandler` | shows the 1000 millisecond poll and the resource name |
-| `/sync/dump`, `/sync/response` | shows the megadump resources |
-| `pbz`, `xjl` | shows the key store file and its password recipe |
+| poll interval is 1000 ms | `LiveDataCommandsHandler.java:169` |
+| poll resource is `liveactivity`, GET, no resend | `LiveDataCommandsHandler.java:109` |
+| key store is BKS, file name and password recipe | `xjl.java:93` |
+| entry alias is the decimal key id | `pbz.java:54` |
+| cipher suites default list | `DtlsOptions.swift` in the GoldenGate repo |
 
-## Reading order if you are new
+## Step 6: check the public API claim
 
-1. `docs/1-the-short-version.md`
-2. `docs/2-how-the-link-works.md`
-3. `docs/3-gatt-map.md`
-4. Then whatever you need.
+```
+curl -s "https://health.googleapis.com/\$discovery/rest?version=v4" | python3 -m json.tool | less
+```
+
+Look at `resources.users.resources.pairedDevices`. Two methods, both metadata. No key. Do
+this once and the question is closed.
 
 ## House rules
 
-Test on your own hardware. Do not run the key extraction against a phone or account that
-is not yours. Do not publish other people's device identifiers. If you find something
+Test on your own hardware. Do not run the extractor against a phone or an account that is
+not yours. Do not publish device identifiers, key ids, or captures. If you find something
 new, open an issue with the bytes redacted.

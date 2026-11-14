@@ -1,67 +1,84 @@
-# What a Fitbit Inspire 3 says over Bluetooth
+# Fitbit Inspire 3, Bluetooth link notes
 
-This repo explains, in plain English, how a Fitbit Inspire 3 talks to a phone over
-Bluetooth. It is based on one person looking at one tracker they own, plus the
-open source code Google publishes for that Bluetooth stack.
+Reverse engineering notes for one device: a Fitbit Inspire 3, firmware `63.<version>`,
+product id 63. The notes cover the Bluetooth stack it speaks, the bytes it sends, and the
+one secret that keeps the data closed.
 
-You do not need to be a Bluetooth expert to read this. Every hard word is explained
-where it first appears.
+Everything here was measured on a device the author owns, or read out of open source
+code, or read out of the app's own decompiled code. Facts that are not measured are
+marked as such. See [AGENTS.md](AGENTS.md) for the confidence rules.
 
-## The short version
+## The stack, with the parameters
 
-| Question | Answer |
+```
+LiveActivity.Activity    protobuf: timestamp, steps, distance, calories, hr, ...
+CoAP                     GET liveactivity every 1000 ms, maxResendCount 0
+DTLS 1.2                 TLS_PSK_WITH_AES_128_CCM (0xC0A4), 16 byte key
+IPv4 / UDP               169.254.0.2 -> 169.254.0.3, port 5684 both ways
+GattLink                 1 byte header, PSN 0..31, ACK at half window or 200 ms
+ATT / GATT               MTU 247, data on ABBAFF01 write, ABBAFF02 notify
+BLE                      bonded link, 1 second connection interval in use
+```
+
+## Measured facts
+
+| Fact | Value | How |
+|---|---|---|
+| Stack family | GoldenGate, not the older SLS / `adab` stack | capture shows IPv4 and DTLS |
+| Link addresses | `169.254.0.2` client, `169.254.0.3` tracker | IPv4 headers in the capture |
+| Transport | UDP, port `5684` both directions | UDP headers |
+| Security | DTLS 1.2 (`FE FD`) with pre shared key | record headers, handshake |
+| Cipher suites offered | `0xC0A4`, `0x00A8`, `0xC037`, plus `0xFF` SCSV | ClientHello bytes |
+| Cipher suite picked | `0xC0A4` PSK-AES128-CCM | ServerHello bytes |
+| DTLS client | the tracker, not the phone | see [docs/2](docs/2-how-the-link-works.md) |
+| Key identity | 20 byte string `MD-<keyid>-<expiry>`, cleartext | ClientKeyExchange bytes |
+| ATT MTU | phone asks 527, tracker grants 247 | ATT exchange MTU |
+| Largest UDP payload | 215 bytes, which is exactly 247 - 3 - 1 - 20 - 8 | frame sizes |
+| Poll rate | 1 request per second, 293 pairs in 16.7 minutes | CoAP app data cadence |
+| Sessions per connection | 3 DTLS sessions, one bootstrap plus two data | separate handshakes |
+| GATT | 5 services, 23 characteristics | macOS CoreBluetooth enumeration |
+| Readable without a bond | identity and two status values, nothing else | macOS probe, 0 notifications |
+| Key location | BKS file in the app's private folder, plain, password protected | decompiled app |
+| Public API for the key | none, 27 methods, 2 about devices, both metadata only | Google discovery documents |
+
+## The wall
+
+The DTLS layer uses a pre shared key. The key is 16 bytes and belongs to one tracker.
+It is not on the air, not in the bootstrap session, and not in any public API.
+
+| Path | Needs | Works |
+|---|---|---|
+| Decode the capture | a sniffer | protocol yes, plaintext no |
+| Unbonded central (Mac, Linux, ESP32) | nothing | identity yes, data pipe silent |
+| Google Health API | OAuth with `googlehealth.settings.readonly` | device metadata only |
+| Read the app's keystore | a rooted Android or a jailbroken iPhone | the actual key |
+
+That last row is the only row that ends with a key. Everything else stops at the same
+wall for the same reason.
+
+## Repo map
+
+| File | Contents |
 |---|---|
-| Can an app read the tracker directly, without the cloud? | Yes, but only with a secret key. |
-| Does the tracker send live data once per second? | Yes. The phone app asks for it every 1 second during use. |
-| Can anyone with a Bluetooth sniffer read that data? | No. All of it is encrypted on the link. |
-| Is there any public way to get the secret key? | No. Not from Google's API, not from the air, not from the device. |
-| Can you read anything at all without the key? | Yes. The tracker answers basic identity questions: maker, model, firmware. |
-| What does the secret key actually guard? | The data channel. Everything else is open or useless. |
+| [docs/1-the-short-version.md](docs/1-the-short-version.md) | the result, in one page, with numbers |
+| [docs/2-how-the-link-works.md](docs/2-how-the-link-works.md) | every layer and its parameters |
+| [docs/3-gatt-map.md](docs/3-gatt-map.md) | services, characteristics, properties, read values |
+| [docs/4-packets.md](docs/4-packets.md) | byte layouts and an annotated handshake |
+| [docs/5-keys.md](docs/5-keys.md) | the key chain, the keystore internals, the three doors |
+| [docs/6-what-we-tried.md](docs/6-what-we-tried.md) | seven dead ends and what each one proved |
+| [docs/7-reproduce.md](docs/7-reproduce.md) | commands to redo every measurement |
+| [docs/8-app-internals.md](docs/8-app-internals.md) | the app's classes, resources and polling loop |
+| [docs/9-open-questions.md](docs/9-open-questions.md) | what is still unknown, and what would settle it |
+| [tools/](tools/) | pklg parser, session decoder, CoreBluetooth probes, key extractor |
 
-## How the research was done
+## If you only want the practical answer
 
-1. Recorded the Bluetooth traffic between an iPhone and the tracker.
-2. Took apart the Android app to see what it asks the tracker for.
-3. Read the open source Bluetooth stack that Google publishes.
-4. Connected a Mac straight to the tracker to see what a stranger can read.
-
-The last step is the interesting one. It shows both what is open and exactly where
-the lock is.
-
-## What is in this repo
-
-| File | What it covers |
-|---|---|
-| [docs/1-the-short-version.md](docs/1-the-short-version.md) | The whole story in one page |
-| [docs/2-how-the-link-works.md](docs/2-how-the-link-works.md) | The layers, from radio to app data |
-| [docs/3-gatt-map.md](docs/3-gatt-map.md) | Every service and setting the tracker offers |
-| [docs/4-packets.md](docs/4-packets.md) | What the bytes look like |
-| [docs/5-keys.md](docs/5-keys.md) | Where the keys live and why one is out of reach |
-| [docs/6-what-we-tried.md](docs/6-what-we-tried.md) | The dead ends, and what each one proved |
-| [docs/7-reproduce.md](docs/7-reproduce.md) | Step by step, if you want to check the work |
-| [AGENTS.md](AGENTS.md) | Notes for AI agents working with this repo |
-| [tools/](tools/) | The small scripts used to read captures and talk to the tracker |
-
-## Three facts worth remembering
-
-**The tracker is a small computer that speaks the internet.** It does not use normal
-Bluetooth data channels. It runs an internet style link over Bluetooth, between two
-made up addresses, `169.254.0.2` and `169.254.0.3`, on port `5684`. That is the same
-port the CoAP protocol uses, and CoAP is a small cousin of HTTP.
-
-**The encryption sits at the bottom, not the top.** The link is wrapped in a security
-layer called DTLS. Everything above it is invisible without the key.
-
-**The key comes from the cloud, not from the tracker.** The phone app asks Google's
-server for the key. The tracker received the same key earlier. So reading the key
-from the air is impossible, and reading it from the tracker needs hardware surgery.
-
-## What this is not
-
-This is not a tool to read other people's trackers. It is not a way around the
-Google Health app. It does not include any real key, serial number, or account
-detail. Device addresses and identifiers in these notes are shortened on purpose.
+The Inspire 3 can hand out heart rate once per second, but only to a client holding the
+device key. A standard BLE heart rate overlay cannot use it, because the tracker does not
+expose the standard Heart Rate service (`180D`). For a live overlay, use a chest strap or
+a watch that broadcasts `180D`. For history and intraday minutes, the Google Health API
+is fine.
 
 ## Licence
 
-MIT. Use it, quote it, fix it.
+MIT.

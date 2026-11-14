@@ -1,119 +1,164 @@
-# 2. How the link works
+# 2. How the link works, layer by layer
 
-This page walks down the link from the radio to the heart rate number. Each layer only
-cares about the layer under it. That is why each one is simple to describe.
+Each layer has a small job and a small set of parameters. This page lists them in order,
+bottom to top, with the measured values.
+
+| Layer | Job | Measured parameters |
+|---|---|---|
+| BLE | carry bytes between two radios | bonded link, MTU 247 |
+| GATT | expose the two ends of one pipe | write `ABBAFF01`, notify `ABBAFF02` |
+| GattLink | turn a narrow lossy pipe into a reliable stream | PSN 5 bits, ACK at half window or 200 ms, resend 4 s |
+| IPv4 | address two peers inside the pipe | `169.254.0.2` to `169.254.0.3`, TTL set, checksum valid |
+| UDP | demultiplex one port | `5684` to `5684` |
+| DTLS 1.2 | encrypt and authenticate | PSK, `0xC0A4`, 16 byte key |
+| CoAP | name resources and carry small bodies | `GET liveactivity`, 1000 ms |
+| Protobuf | encode the record | `LiveActivity.Activity` |
+
+## BLE and GATT
+
+The tracker offers five services and 23 characteristics. The interesting one is a single
+pipe with one end for writes and one end for notifications. Both ends sit in service
+`ABBAFF00-E56A-484C-B832-8B17CF6CBFE8`.
+
+ATT MTU, measured on five separate connections: the phone asks for 527, the tracker
+answers 247. So a notification carries at most 244 bytes of value.
+
+That number drives the whole stack. Work it down:
 
 ```
-heart rate record             the thing you want
-CoAP requests                 a small HTTP, resource names like "liveactivity"
-DTLS 1.2 with a pre shared key   encryption, one 16 byte key
-IPv4 and UDP                  two fixed addresses, port 5684
-GattLink                      numbered packets, ACKs, a reset handshake
-GATT                          two settings: write here, hear back there
-BLE                           the radio link, bonded
+247  ATT MTU
+ -3  ATT notification header (opcode, handle)
+244  GattLink payload
+ -1  GattLink data header
+243  IPv4 packet
+-20  IPv4 header
+223  UDP datagram
+ -8  UDP header
+215  DTLS record
 ```
 
-## BLE and GATT, in one paragraph
+The largest DTLS application record in the capture is 215 bytes. The stack model matches
+the bytes exactly.
 
-BLE is the low power radio. GATT is the shape of what you can do with it. A tracker
-offers services, each service holds characteristics, and each characteristic holds a
-value you can read, write, or subscribe to. When you subscribe, the tracker pushes new
-values to you as they change. That push is called a notification.
+## GattLink
 
-## GattLink, the part people miss
+GattLink exists because a BLE characteristic is a narrow tube that can drop or reorder
+packets. It gives the layers above a reliable, ordered stream.
 
-GattLink is Fitbit's own small protocol. It exists because a BLE characteristic is a
-very narrow tube: a few dozen bytes at a time, and the radio can drop or reorder them.
-GattLink makes that tube behave like a reliable stream.
+Packet header, one byte:
 
-It does three things:
+| Bits | Meaning |
+|---|---|
+| bit 7 clear | this is a data packet |
+| bit 6 | the sender wants an ACK |
+| bits 0 to 4 | packet sequence number, PSN, 0 to 31 |
+| rest | payload |
 
-1. A reset handshake. One side sends `0x80`. The other answers `0x81` with a version
-   range and two window sizes. Until that happens, neither side sends data.
-2. Numbered data packets. The first byte carries a small packet number, and a flag
-   that says "please acknowledge this".
-3. Acknowledgements. The receiver confirms which numbers arrived. Missing ones get sent
-   again.
+The PSN is 5 bits, so the sequence space is 32 packets. An ACK-only packet carries the
+highest PSN received. Control packets set bit 7 and use the low bits as a subtype:
 
-It is all open source, Apache 2.0, in the `golden-gate` repo, file `gg_gattlink.c`.
+| Byte | Packet |
+|---|---|
+| `0x80` | reset request, no payload |
+| `0x81` | reset complete, 4 payload bytes: min version, max version, receive window, transmit window |
 
-## The fake internet inside
+Timers come from the published design notes (`docs/src/architecture/gattlink.md` in the
+GoldenGate repo):
 
-The next layer up is a surprise for most people. The tracker and the phone each have a
-made up internet address:
+| Behaviour | Value |
+|---|---|
+| Send an ACK | when half the window needs acking, or 200 ms have passed |
+| Resend an unacked packet | after 4 seconds |
+| Give up | after consecutive missed ACKs, and raise a stall event |
+| Reset handshake | each peer sends a reset request, retries on a timer, and waits for a reset complete |
+
+Both peers run the same state machine, so either side may open the pipe. This is why a
+laptop can send `0x80` and get a polite no.
+
+## IPv4 and UDP
+
+The tracker and the phone each hold a link local address:
 
 | Side | Address |
 |---|---|
-| Phone | `169.254.0.2` |
-| Tracker | `169.254.0.3` |
-| Port, both ways | `5684` |
+| Phone, the central | `169.254.0.2` |
+| Tracker, the peripheral | `169.254.0.3` |
 
-`169.254.x.x` is the range computers use when they cannot find a normal network. Here
-it is used on purpose, as a private two node network.
+Headers in the capture are ordinary IPv4: version 4, header length 5 words, protocol 17
+for UDP, total length set, header checksum present and correct. Both sides use port
+`5684`, which is the CoAP port.
 
-So the payload of a GattLink data packet is a real IPv4 packet, with a real UDP header
-inside it. That is why the bytes `45 00` show up early in the packet: `0x45` is the
-first byte of an IPv4 header.
+## DTLS, and who is the client
 
-## DTLS, the lock
+DTLS 1.2 record headers are visible even when the payload is not. In the capture the
+tracker sends the ClientHello, and the phone answers with a ServerHello. So for this
+stack:
 
-On port 5684 the two sides run DTLS version 1.2. DTLS is TLS for links that can lose
-packets. This link uses a cipher suite called `TLS_PSK_WITH_AES_128_CCM`. PSK means pre
-shared key: no certificates, no public key exchange, just a 16 byte secret both sides
-already know.
-
-The first thing a client sends is its identity string. That string is readable, even
-though the rest is not. It looks like this:
-
-```
-MD-1A2B3C4D-5E6F7A8B
-```
-
-Break it in three parts:
-
-| Part | Meaning |
+| Role | Party |
 |---|---|
-| `MD` | mobile data |
-| `1A2B3C4D` | key id, in hex |
-| `6B1836DA` | expiry time, in hex seconds since 1970 |
+| DTLS client, sends ClientHello and the key identity | the tracker |
+| DTLS server, resolves the key by id and completes the handshake | the phone app |
 
-The values above are a made up example. On a real link they are different.
-That is how a key id can be quoted without knowing the key. The trailer in the
-handshake is a label, not a secret.
+That ordering surprised the author too. The direction comes from the HCI direction bit in
+the trace, and it was cross checked: on the same connection 1237 ATT notifications arrive
+from the tracker while 599 write commands leave the phone, so the direction labels are
+not swapped.
 
-## CoAP, the actual conversation
+The suites the client offers are exactly the three in the open source
+`DtlsOptions.defaultCipherSuites`:
 
-CoAP looks like HTTP but shorter. Instead of URLs it uses short resource names. The app
-uses these, taken from its own code:
+| Suite | Name | Picked |
+|---|---|---|
+| `0xC0A4` | `TLS_PSK_WITH_AES_128_CCM` | yes |
+| `0x00A8` | `TLS_PSK_WITH_AES_128_GCM_SHA256` | no |
+| `0xC037` | `TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA` | no |
+| `0x00FF` | renegotiation SCSV, not a real suite | no |
 
-| Resource | Used for |
+Extensions in the ClientHello: elliptical curves `0x000A`, EC point formats `0x000B`,
+encrypt then MAC `0x0016`, extended master secret `0x0017`, session ticket `0x0023`.
+
+The client sends its key identity in the ClientKeyExchange, in clear: a 2 byte length
+then 20 bytes.
+
+## CoAP
+
+CoAP keeps the HTTP idea and throws away the weight. A request is 4 bytes of header plus
+a token plus options. The app builds requests with `OutgoingRequestBuilder`, and the live
+activity request sets `maxResendCount(0)`, so a lost poll is simply dropped and the next
+poll comes one second later.
+
+Resources named in the app code:
+
+| Resource | Use |
 |---|---|
 | `liveactivity` | the once per second record |
-| `/sync/dump` | the big upload of stored data, called megadump |
-| `/sync/response` | the phone's reply to a dump |
+| `/sync/dump` | the bulk upload of stored data |
+| `/sync/response` | the phone's acknowledgement of a dump |
 | `/sync/config`, `/sync/status` | sync settings and state |
-| `pair/display` | show a pairing code on the device |
+| `pair/display` | show a pairing code on the device screen |
 | `bond/control` | manage the bond |
-| `app/inbox`, `app/outbox`, `tiles/config` | apps and watch faces |
+| `app/inbox`, `app/outbox`, `tiles/config` | apps |
 | `sb/records` | sensor records |
 
-Inside `liveactivity` the answer is a small binary record. Fields: timestamp, steps,
-distance, calories, floors, heart rate, heart rate confidence, daily and weekly zone
-minutes.
+Blockwise transfer exists in the library (`CoapBlockwiseResponseListener`,
+`jni_gg_coap_client_block`), so large bodies arrive in numbered blocks. That matters for
+`/sync/dump`, where a day of data can be far larger than 215 bytes.
 
-## The newer and older Fitbit families
+## Protobuf
 
-Two stacks exist in the app. The older one, called SLS or airlink, uses services named
-`adabXXXX`. The newer one, GoldenGate, is the internet style stack above.
+The live activity body is a protobuf message, `LiveActivity.Activity`. The app parses it
+with `LiveActivity.Activity.parseFrom(byte[])` and converts it with `LiveDataConverter`.
 
-The Inspire 3 uses GoldenGate. You can tell from the traffic alone: IPv4 packets, UDP
-port 5684, DTLS. No `adab` service is present. That matters because most blog posts
-about Fitbit Bluetooth describe the old stack.
+Fields: timestamp, steps, elevation, calories, distance, active minutes, heart rate,
+heart rate confidence, daily zone minutes, weekly zone minutes.
 
-## Why the internet inside matters
+## Two Fitbit stacks
 
-It means the phone never needed special Fitbit code to carry the bytes. It only needed
-a working GattLink pipe, and then normal networking did the rest. It also means a
-patient person with a laptop and the open source code can rebuild the whole stack,
-which is exactly what the notes in this repo prepare for. The only part that cannot be
-rebuilt is the 16 byte key.
+| Stack | Service names | Security | Used by |
+|---|---|---|---|
+| SLS, also called airlink | `adabXXXX` | challenge and response, weaker | older trackers |
+| GoldenGate | `ABBAFF00`, `ABBAFD00` | DTLS 1.2 PSK | Inspire 3 and current devices |
+
+Most public notes describe SLS. This device is not SLS: there is no `adab` service, and
+there is no plain live data characteristic. If a guide mentions `558dfa00` or a 16 byte
+live data frame, it is describing the old stack.

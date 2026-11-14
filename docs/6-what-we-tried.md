@@ -1,97 +1,104 @@
-# 6. What we tried, and what each failure proved
+# 6. Seven dead ends, and what each one proved
 
-A failure that teaches you where the wall is worth more than a guess. This page lists
-every dead end so nobody repeats it.
+Failed attempts are evidence. Each entry states what was done, what came back, and what
+that rules out.
 
-## 1. Decode the pairing traffic and look for the key
+## 1. Decode the pairing capture and look for the key
 
-**What was done.** Recorded a full pairing between an iPhone and the tracker. Decoded
-the GattLink layer, found the DTLS handshake, and read the identity strings.
+**Done.** Recorded a full pairing between an iPhone and the tracker, 16.7 minutes, 4.7 MB.
+Reassembled GattLink, extracted the IPv4 and UDP layers, and listed every DTLS record.
 
-**What happened.** Three secure sessions per pairing. One called `BOOTSTRAP`, two
-called `MD-<keyid>-<expiry>`. The bootstrap session decrypted with the public key. The
-two data sessions did not, and the key was nowhere in the decrypted bootstrap bytes.
+**Result.** Three DTLS sessions on the busiest connection. Every session: one ClientHello
+of 101 bytes, one ServerHello of 131 bytes picking `0xC0A4`, one ClientKeyExchange of 122
+bytes with the 20 byte identity, one change cipher spec, then application data. The
+identity `MD-<keyid>-<expiry>` appears in clear. The key does not appear anywhere, in any
+session, in either direction.
 
-**What it proved.** The transport can be mapped by listening. The data cannot.
+**Proved.** The transport is fully visible. The plaintext is not.
 
-## 2. Try every 16 byte slice as the key
+## 2. Try every 16 byte slice of the bootstrap session
 
-**What was done.** Took the decrypted bootstrap session, slid a 16 byte window across
-all of it, 2,861 candidates, and tried each as the session key.
+**Done.** The bootstrap session uses a public key, so it decrypts. A 16 byte window slid
+across all of it, 2,861 candidates, and each candidate was tried as the data session key.
 
-**What happened.** Every candidate failed.
+**Result.** Zero matches.
 
-**What it proved.** The key is not hiding in the pairing traffic in plain, shifted, or
-re ordered form. This is the important negative result.
+**Proved.** The key is not a copy, a shift, or a reordering of anything in the handshake.
+It arrives from outside the radio link.
 
-## 3. Use an Android emulator with the real app
+## 3. Rooted Android emulator running the real app
 
-**What was done.** Installed the real app on a rooted Android emulator, signed in, let
-it sync. The emulator can be rooted because it is a developer build.
+**Done.** Installed Google Health 5.12.1 on an API 35 emulator, rooted with `adb root`,
+signed in, opened the device list.
 
-**What happened.** The app worked, pulled account data, and even showed the tracker in
-its device list with battery level. The key file never appeared.
+**Result.** The app worked. The account synced. The tracker appeared with its battery
+level, its wire id, and `supportsMobileData = 1`. The keystore file never appeared, and the
+log stopped at `BluetoothAdapter: isLeEnabled(): ON`. The emulated radio reported itself
+as `XX:XX:XX:XX:BB:BB` and had no peer to connect to.
 
-**Why.** The key is fetched on the way to a real Bluetooth connection. The emulator's
-radio is fake and points at nothing. Tapping "sync" reached the Bluetooth check and
-stopped there.
+**Proved.** Root is necessary but not sufficient. The app only provisions the key store
+after a real Bluetooth session with a real tracker.
 
-**What it proved.** Root alone is not enough. You need root on a device that can also
-reach the tracker.
+## 4. Bridge a real radio into the emulator
 
-## 4. Bridge the Mac's radio into the emulator
+**Done.** Read the source of a community project that adds Bluetooth to the Android
+emulator.
 
-There is a community project that gives the Android emulator real Bluetooth. It was
-investigated and ruled out: it works by giving the app a library to call. Our app is
-closed source and will never call that library. No good.
+**Result.** It is not a transparent radio bridge. It gives the target app a library to
+call, and the app must be rebuilt against it. The Google Health app is closed source.
 
-**What it proved.** Android's emulator has no transparent radio passthrough on macOS.
+**Proved.** There is no emulator path for a closed source app on macOS. Rule this out fast
+in future.
 
-## 5. Connect from a Mac and read everything
+## 5. Full GATT probe from a Mac
 
-**What was done.** Switched the phone's Bluetooth off so the tracker was free, then
-connected from a Mac and asked for every service, every characteristic, and every
-readable value.
+**Done.** Phone Bluetooth off, tracker advertising, Mac connected with CoreBluetooth, read
+every readable characteristic, subscribed to the notify end of the pipe, wrote the GattLink
+reset request.
 
-**What happened.** Full access to identity data. Maker, model, firmware. Two status
-values. Then the tracker accepted a subscribe, accepted a GattLink reset write, and
-never sent a single notification.
+**Result.** Every identity read returned a value. Two status reads returned values. The
+subscribe was accepted. The reset write was accepted with no error. Then: zero
+notifications, no reset complete, no DTLS record.
 
-**What it proved.** The data pipe only serves a bonded, registered phone. A laptop
-cannot become one, because no value on the device demands a secure link, so pairing
-never starts.
+**Proved.** The tracker is bonded to one phone and ignores everyone else at the data
+layer, without even an error. Also proved the tracker's ATT MTU is 247 while the phone asks
+for 527.
 
-## 6. Ask Google's public API for the key
+## 6. Ask the public API for the key
 
-**What was done.** Read Google's published API description for the health API, both
-stable and beta channels.
+**Done.** Read both discovery documents for Google Health API v4.
 
-**What happened.** 27 methods. Two about devices. They return name, model, battery,
-last sync, features, Bluetooth address. No key, ever.
+**Result.** 27 methods. Two device methods. Both return metadata.
 
-**What it proved.** There is no permission to ask for, because the endpoint does not
-exist. Please stop suggesting this one.
+**Proved.** There is no endpoint to request, and no scope that would unlock one. Stop
+suggesting it.
 
-## 7. Use the older unauthenticated data characteristic
+## 7. Use the old unauthenticated live data characteristic
 
-Older Fitbits have a live data characteristic that public notes say could be read after
-a simple challenge. The Inspire 3 does not have it. No service `558dfa00`, no such
-characteristic. Not applicable.
+**Done.** Checked the tracker for service `558dfa00` and the old live data
+characteristic.
 
-## Summary table
+**Result.** Neither exists. The device has five services, listed in
+[3-gatt-map.md](3-gatt-map.md).
 
-| Approach | Cost | Outcome |
+**Proved.** Guides that describe a 16 byte live data frame apply to older Fitbits only.
+
+## Summary
+
+| Attempt | Time cost | Ceiling reached |
 |---|---|---|
-| Bluetooth capture and decode | hours | protocol fully mapped, no key |
-| Slice brute force | hours | confirmed the key is not present |
-| Rooted emulator with real app | half a day | account data yes, key no |
-| Mac central, full GATT | an hour | identity only, data pipe silent |
-| Public API | minutes | no such endpoint |
-| Rooted real phone that can pair | a phone | the only path that should work |
-| Physical flash read of the tracker | risky | would work, destroys the device |
+| Capture and decode | hours | plaintext is encrypted |
+| Slice brute force | hours | key is not present |
+| Rooted emulator | half a day | no radio, no peer |
+| Radio bridge | an hour of reading | app must be rebuilt |
+| Mac central | an hour | bond required, and cannot be forced |
+| Public API | minutes | no endpoint |
+| Old stack path | minutes | not on this device |
+| Rooted phone that pairs | a device | the only path with a working key |
 
-## The takeaway
+## Two firmware notes worth keeping
 
-If you want this data faster than the cloud, buy a device that streams it openly, or
-use the cloud. If you specifically want to prove the tracker can be read locally, get a
-cheap Android phone whose bootloader unlocks, because that is the only honest path.
+**Firmware string.** `63.20001.220.31`, with `63` as the model prefix.
+
+**Rotating serial.** Characteristic `2A25` changed value between connections. Anything
+that depends on it as a stable id will break.

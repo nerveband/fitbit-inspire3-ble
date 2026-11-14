@@ -1,68 +1,73 @@
-# 1. The short version
+# 1. The result, with numbers
 
-A Fitbit Inspire 3 is a small tracker with no screen. It talks to a phone with
-Bluetooth Low Energy, which people shorten to BLE. This page gives the whole result
-before any detail.
+The Inspire 3 speaks a Fitbit stack called GoldenGate. It carries a small IPv4 network
+over Bluetooth, encrypts it with DTLS, and answers CoAP requests inside it. The app polls
+live activity once per second. All of that is measurable. The only closed part is the 16
+byte key that unwraps the DTLS session.
 
-## What the tracker does when a phone connects
+## The measurement that matters
 
-1. It offers a short list of services. A service is a group of settings and channels.
-2. Most of that list is boring identity data. Maker name, model number, firmware.
-3. One service is the real pipe. It has two settings: one the phone writes into, and
-   one the tracker sends data out from.
-4. Above that pipe the tracker runs a small internet. Two fixed addresses, one port,
-   normal internet packet headers.
-5. On top of that it runs DTLS, a security layer. DTLS is the encrypted cousin of TLS,
-   the thing that makes the little padlock in a browser work.
-6. Inside DTLS it speaks CoAP. CoAP is a light version of HTTP for small devices.
-7. Inside CoAP the phone asks for things by name, for example "live activity", and the
-   tracker answers with a small binary record that includes heart rate.
+One capture, 16.7 minutes, iPhone and tracker, three connections.
 
-## What the phone actually asks for
+| Connection | ATT frames | UDP packets | App data each way | What was happening |
+|---|---|---|---|---|
+| handle `0x0058` | 2298 | 596 | 293 requests, 293 responses | steady polling, plus a sync burst |
+| handle `0x0041` | 654 | 58 | 27 each way | short session after reconnect |
+| handle `0x0052` | 526 | 38 | 17 each way | short session |
 
-The Android app is not shy about it. The code asks for live activity every 1,000
-milliseconds. That is once per second. Each answer holds a timestamp, steps, distance,
-calories, floors, heart rate, and a confidence value for the heart rate.
+293 requests in 16.7 minutes is 1 every 3.4 seconds averaged, because the burst pushes
+the rate up and idle time pulls it down. Look at the steady part and it is exactly 5
+requests every 5 seconds. The app code says why: an interval of `1000L` milliseconds
+(`LiveDataCommandsHandler.java:169`).
 
-So the tracker can hand out heart rate once per second. That part is not a rumour, it
-is what the app already does.
+## The six facts that shape everything else
 
-## Where the wall is
+**One: the tracker runs an internet inside Bluetooth.** Source `169.254.0.2`, destination
+`169.254.0.3`, UDP port `5684`. Real IPv4 headers with a real header checksum.
 
-DTLS with a pre shared key does one thing well: nothing above it can be read without
-the key. This link uses exactly that mode. The key is 16 bytes and belongs to one
-tracker.
+**Two: security is a shared secret, not certificates.** DTLS 1.2, one pre shared key,
+cipher `TLS_PSK_WITH_AES_128_CCM` (`0xC0A4`). No public key exchange is needed to start.
 
-Where does the key come from? The phone asks Google's cloud for it, using the person's
-own login. The tracker was given the same key earlier, when it was set up. The key is
-never sent over Bluetooth.
+**Three: the tracker opens the secure session.** It sends the ClientHello. The phone
+answers with the ServerHello. The tracker then sends a key exchange holding its own key
+identity in the clear: `MD-<key id>-<expiry>`, 20 bytes.
 
-So there are only three ways to get it:
+**Four: the key is provisioned, not derived.** The phone keeps a copy indexed by that key
+id and looks it up when the tracker connects. Nothing in the handshake lets an outsider
+compute it.
 
-| Way | Result |
+**Five: the data pipe ignores strangers.** Without a bond, the tracker accepts a write to
+its GattLink characteristic, accepts the subscribe, and sends zero notifications. Silent.
+
+**Six: the public API has no key endpoint.** 27 methods in Google's Health API v4, two
+about devices, both metadata.
+
+## What a stranger can and cannot see
+
+| Can see | Cannot see |
 |---|---|
-| Listen to the Bluetooth link | Impossible. The key is not in the air. |
-| Ask Google's public API | Impossible. No such endpoint exists. |
-| Read the phone's own storage | Possible, but the phone must be unlocked at the system level |
+| maker `Fitbit`, model `63`, firmware string | heart rate, steps, distance, calories |
+| two small status values | the data key |
+| that a tracker is nearby, and its advertised name | the phone's account, its tokens, its device ids |
+| the key id and its expiry, from the handshake | the traffic content, at all |
 
-The third one is not a hack of the tracker. It is reading your own app's private file
-on your own phone. That needs a rooted Android phone or a jailbroken iPhone.
+## What the numbers say about the design
 
-## What is open, with no key at all
+The MTU is 247 bytes. GattLink adds 1 byte, IPv4 adds 20, UDP adds 8. So the biggest UDP
+payload is 215 bytes. The largest app data record in the capture is exactly 215 bytes.
+That agreement is a good sign the layer model is right.
 
-A stranger can connect to the tracker and read:
+## Practical outcomes
 
-| Question | Answer from the tracker |
+| Goal | Verdict |
 |---|---|
-| Who made you? | `Fitbit` |
-| Which model? | `63` |
-| What firmware? | `63.<version>` |
+| Live heart rate on a desktop overlay | not with this tracker, no `180D` service |
+| Live heart rate on a rooted Android that pairs | possible, needs the key from that phone |
+| Intraday steps and heart rate history | Google Health API, 1 minute buckets |
+| Rebuild the client from scratch | everything except the key is documented and available |
 
-That is it. Everything else either needs the key or stays silent. The data pipe accepts
-writes from a stranger and never answers. It only talks to a phone it has bonded with,
-and it only sends encrypted data after that.
+## Where to go next
 
-## The one sentence summary
-
-The tracker happily tells you what it is, refuses to tell you what it measured, and the
-only shortcut around that refusal is reading the key out of your own phone.
+Read [2-how-the-link-works.md](2-how-the-link-works.md) for the layer by layer detail, then
+[5-keys.md](5-keys.md) for the key chain. If you want to test a claim yourself, every
+number on this page can be reproduced with [7-reproduce.md](7-reproduce.md).
