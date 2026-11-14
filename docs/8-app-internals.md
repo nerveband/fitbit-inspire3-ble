@@ -144,6 +144,26 @@ app during the test. Whether the pairing step that provisions the key store requ
 passing attestation is not known. Treat it as the main risk for a rooted phone plan, and
 test with the account already holding the paired tracker.
 
+## `app/inbox` is a file inbox
+
+The package `com/fitbit/goldengate/filetransfer` explains two resources this repo had only seen
+from the outside:
+
+| Class | Resource |
+|---|---|
+| `CoapFileInboxResource` | `app/inbox`, plus `app/inbox/status` for progress |
+| `CoapFileOutboxResource` | `app/outbox` |
+
+Files move with metadata: action, version, checksum, file metadata, and content, defined in
+`com/fitbit/goldengate/file/FileProtos`. A file payload for reads is
+`FileTransferReadFilePayload`, and firmware images ride the same pipe through
+`com.fitbit.fbcomms.fwup.FirmwareImageFileInfo`.
+
+So `app/inbox` is not an app runtime. On this generation of hardware it is how the phone pushes
+files at the tracker: images, and firmware. That is why the resource exists on an Inspire 3 while
+`tiles/config` does not, and it is why the firmware question and the app question have different
+answers.
+
 ## The app never decrypts the stored archive
 
 This matters for anyone hoping to read history without the tracker key. The upload path in
