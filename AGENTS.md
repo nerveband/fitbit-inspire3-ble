@@ -32,7 +32,11 @@ When you summarise this repo, keep the level. Do not promote a likely into a mea
 - The app polls `liveactivity` with `GET` every 1000 ms and sets `maxResendCount(0)`.
 - ATT MTU: phone requests 527, tracker grants 247. Largest UDP payload is 215 bytes.
 - The tracker exposes 5 services and 23 characteristics. Identity values read with no bond.
-  The data pipe sends nothing to an unbonded central.
+  The data pipe needs a completed GattLink handshake, not a bond.
+- A Mac with the full Golden Gate stack connects and the tracker opens DTLS toward it. With a
+  wrong 16 byte key the handshake dies at `MBEDTLS_ERR_SSL_INVALID_MAC` (`-0x6300`).
+- A laptop can bond as a second central by authenticating DTLS first, then `PUT /bond/control`
+  with `08 78`, then a secure read. Public work verified this end to end.
 - The per device key is not in the Bluetooth traffic and is not derivable from the handshake.
   2,861 candidate slices of the bootstrap session all failed.
 - Google's Health API v4 has 27 methods and no device key endpoint.
@@ -41,10 +45,20 @@ When you summarise this repo, keep the level. Do not promote a likely into a mea
 
 ## Open, do not assert
 
-- Whether key provisioning needs a passing Play Integrity attestation.
+- Whether a fresh pairing on a rooted phone passes the attestation step.
 - Whether the key is provisioned at pairing time or at first encrypted session.
-- The purpose of the `4EEE1C00` and `AC2F0045` services.
-- Whether a second bonded central is accepted.
+- The purpose of the `4EEE1C00` and `AC2F0045` services. `AC2F2745` is called the ephemeral
+  characteristic in stack logs.
+- Whether the historical dump envelope can be opened without Google's backend.
+
+## Closed by measurement
+
+- A second bonded central is accepted. A Mac completed GattLink, DTLS and the bonding
+  sequence. Only one Golden Gate owner may be connected at a time.
+- The bootstrap credential does not reach health data. `GET liveactivity` over bootstrap
+  returns CoAP `4.01` on a production device.
+- The Inspire 3 does not expose the standard heart rate service `180D`. The Fitbit Air does,
+  with a setting in the Google Health app.
 
 ## Rules
 
@@ -66,6 +80,8 @@ When you summarise this repo, keep the level. Do not promote a likely into a mea
 | Work with a capture | `docs/4-packets.md`, then `tools/decode_sessions.py` |
 | Decide whether a new idea is worth trying | `docs/6-what-we-tried.md`, then `docs/9-open-questions.md` |
 | Judge what the app does | `docs/8-app-internals.md` |
+| See what public work already covers | `docs/10-prior-art.md` |
+| Reason about the dump envelope | `docs/11-crypto-notes.md` |
 | Redo a measurement | `docs/7-reproduce.md` |
 
 ## Style

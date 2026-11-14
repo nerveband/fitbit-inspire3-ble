@@ -49,12 +49,14 @@ It is not on the air, not in the bootstrap session, and not in any public API.
 | Path | Needs | Works |
 |---|---|---|
 | Decode the capture | a sniffer | protocol yes, plaintext no |
-| Unbonded central (Mac, Linux, ESP32) | nothing | identity yes, data pipe silent |
+| Bare GATT probe | nothing | identity yes, then a half open handshake |
+| Full stack on a Mac with the wrong key | an hour of building | invalid MAC, no data |
 | Google Health API | OAuth with `googlehealth.settings.readonly` | device metadata only |
 | Read the app's keystore | a rooted Android or a jailbroken iPhone | the actual key |
 
-That last row is the only row that ends with a key. Everything else stops at the same
-wall for the same reason.
+That last row is the only row that ends with a key. Everything else stops at the same wall
+for the same reason. Public work reached the same conclusion; see
+[docs/10-prior-art.md](docs/10-prior-art.md).
 
 ## Repo map
 
@@ -69,6 +71,8 @@ wall for the same reason.
 | [docs/7-reproduce.md](docs/7-reproduce.md) | commands to redo every measurement |
 | [docs/8-app-internals.md](docs/8-app-internals.md) | the app's classes, resources and polling loop |
 | [docs/9-open-questions.md](docs/9-open-questions.md) | what is still unknown, and what would settle it |
+| [docs/10-prior-art.md](docs/10-prior-art.md) | who has already solved what, with links |
+| [docs/11-crypto-notes.md](docs/11-crypto-notes.md) | the dump envelope, and why breaking it is not the way |
 | [tools/](tools/) | pklg parser, session decoder, CoreBluetooth probes, key extractor |
 
 ## If you only want the practical answer

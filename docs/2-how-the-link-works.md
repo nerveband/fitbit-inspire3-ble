@@ -91,13 +91,15 @@ for UDP, total length set, header checksum present and correct. Both sides use p
 ## DTLS, and who is the client
 
 DTLS 1.2 record headers are visible even when the payload is not. In the capture the
-tracker sends the ClientHello, and the phone answers with a ServerHello. So for this
-stack:
+tracker sends the ClientHello, and the phone answers with a ServerHello. A Mac with the open
+source stack reproduces this in seconds: the tracker completes GattLink and immediately
+opens DTLS toward the Mac. So for this stack:
 
 | Role | Party |
 |---|---|
+| Golden Gate hub, described as `isNode=false` in the open source bindings | the phone, and a Mac running the same stack |
 | DTLS client, sends ClientHello and the key identity | the tracker |
-| DTLS server, resolves the key by id and completes the handshake | the phone app |
+| DTLS server, resolves the key by id and completes the handshake | the hub |
 
 That ordering surprised the author too. The direction comes from the HCI direction bit in
 the trace, and it was cross checked: on the same connection 1237 ATT notifications arrive
@@ -119,6 +121,16 @@ encrypt then MAC `0x0016`, extended master secret `0x0017`, session ticket `0x00
 
 The client sends its key identity in the ClientKeyExchange, in clear: a 2 byte length
 then 20 bytes.
+
+The stack sizes the connection around the ATT limit, not around the IP limit:
+
+| Value | Size |
+|---|---|
+| stack IP MTU | 1280 bytes |
+| GattLink buffer | 2560 bytes |
+| ATT MTU granted | 247 bytes, so 244 of payload |
+| first IP packet from the tracker | 129 bytes, the ClientHello |
+| first IP packet from the hub | 159 bytes, the ServerHello flight |
 
 ## CoAP
 

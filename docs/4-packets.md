@@ -102,19 +102,39 @@ Format:
 ## An observed handshake, in order
 
 From handle `0x0058`, one of three sessions on that connection. Direction is from the HCI
-direction bit.
+direction bit. These sizes were re-measured on a Mac with the open source stack, and they
+match: a 101 byte ClientHello, and the same 4 suites filtering down to `0xc0a4`.
 
 | Direction | Record | Size | Content |
 |---|---|---|---|
-| tracker to phone | handshake | 101 bytes | ClientHello, suites `0xC0A4 0x00A8 0xC037 0x00FF` |
+| tracker to phone | handshake | 101 bytes | ClientHello, suites `0xC0A4 0x00A8 0xC037` plus `0x00FF` |
 | phone to tracker | handshake | 131 bytes | ServerHello, picked `0xC0A4`, plus hello done |
 | tracker to phone | handshake | 122 bytes | ClientKeyExchange, identity length 20 |
 | tracker to phone | change cipher spec | 75 bytes | |
 | both | application data | 45 to 215 bytes | CoAP, encrypted |
 
-On that connection the server hello and the key exchange repeated three times before the
-change cipher spec arrived. That is DTLS retransmission over a lossy ATT pipe, and it is
-normal behaviour, not an error.
+On the Mac run the stack logged the decision directly:
+
+```
+dumping 'client hello, ciphersuitelist' (8 bytes)
+trying ciphersuite: 0xc0a4 (TLS-PSK-WITH-AES-128-CCM)
+selected ciphersuite: TLS-PSK-WITH-AES-128-CCM
+resolving PSK identity, size=20
+```
+
+With a wrong 16 byte key the same run ended here:
+
+```
+mbedtls_cipher_auth_decrypt() returned -25344 (-0x6300)
+```
+
+`0x6300` is `MBEDTLS_ERR_SSL_INVALID_MAC`. The Finished message did not authenticate, so
+the handshake stopped. That is the whole wall in one line: correct key, MAC verifies,
+session opens. Wrong key, MAC fails, session dies.
+
+On that phone capture the server hello and the key exchange repeated three times before
+the change cipher spec arrived. That is DTLS retransmission over a lossy ATT pipe, and it
+is normal behaviour, not an error.
 
 ## Application data sizes
 
@@ -144,20 +164,28 @@ option delta 11 with a 1 byte length prefix.
 
 ## The live activity body
 
-A protobuf message, `LiveActivity.Activity`. Field names from the app's generated class:
+A protobuf message, `LiveActivity.Activity`. Field numbers, confirmed independently by the
+open source reader and by the app's generated class:
 
-| Field | Unit |
-|---|---|
-| timestamp | seconds |
-| steps | count |
-| elevation | floors or gain |
-| calories | kcal |
-| distance | cm or m, depends on the converter |
-| active minutes | count |
-| heart rate | bpm |
-| heart rate confidence | enum, 0 to 3 |
-| daily zone minutes | count |
-| weekly zone minutes | count |
+| Field | Meaning | Unit |
+|---|---|---|
+| 1 | timestamp | seconds |
+| 2 | steps | count |
+| 3 | distance | **millimetres** |
+| 4 | calories | kcal |
+| 5 | elevation | floors or gain |
+| 6 | very active minutes | count |
+| 7 | heart rate | bpm |
+| 8 | heart rate confidence | enum |
+| 9 | daily active zone minutes | count |
+| 10 | weekly active zone minutes | count |
+
+Heart rate confidence values: `0` invalid, `1` tentative, `2` good, `3` microstill. A zero
+or invalid heart rate is not a measurement. Distance is divided by 1,000,000 for
+kilometres, which is why field 3 is millimetres.
+
+A live activity response on a working link is 24 bytes, so the message is small and mostly
+delta free.
 
 Protobuf is not self describing, so a dump without a schema is unreadable by eye. Use the
 generated class or a matching `.proto`.

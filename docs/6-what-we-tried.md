@@ -1,4 +1,4 @@
-# 6. Seven dead ends, and what each one proved
+# 6. Dead ends, and what each one proved
 
 Failed attempts are evidence. Each entry states what was done, what came back, and what
 that rules out.
@@ -50,21 +50,61 @@ call, and the app must be rebuilt against it. The Google Health app is closed so
 **Proved.** There is no emulator path for a closed source app on macOS. Rule this out fast
 in future.
 
-## 5. Full GATT probe from a Mac
+## 5. Full GATT probe from a Mac, first attempt
 
 **Done.** Phone Bluetooth off, tracker advertising, Mac connected with CoreBluetooth, read
 every readable characteristic, subscribed to the notify end of the pipe, wrote the GattLink
-reset request.
+reset request `0x80`.
 
 **Result.** Every identity read returned a value. Two status reads returned values. The
 subscribe was accepted. The reset write was accepted with no error. Then: zero
 notifications, no reset complete, no DTLS record.
 
-**Proved.** The tracker is bonded to one phone and ignores everyone else at the data
-layer, without even an error. Also proved the tracker's ATT MTU is 247 while the phone asks
-for 527.
+**Proved at the time.** Read as a refusal. That reading was wrong, and the correction is
+below. What it did prove is that the tracker's ATT MTU is 247 while the phone asks for 527.
 
-## 6. Ask the public API for the key
+## 5b. The same probe with the real stack, corrected
+
+**Done.** Built the archived Golden Gate stack with the CoreBluetooth patch from
+[Hasaber8/airLocal](https://github.com/Hasaber8/airLocal), then connected a Mac to the same
+Inspire 3 with a deliberately wrong 16 byte key.
+
+**Result, measured.** The connection came up, MTU 244 of payload, connection interval
+30 ms. GattLink then ran both ways: the Mac sent a reset request, the tracker sent its own
+reset request, the Mac sent a reset complete, and the tracker began sending IP packets
+starting with `45` inside GattLink packet number 0, 129 bytes long. In order:
+
+| Event | Measurement |
+|---|---|
+| ClientHello | 101 bytes, arrives as the first IP packet |
+| Suite list | 8 bytes, 4 suites |
+| Suite selection | the stack tries `0xc0a4` first and selects it |
+| PSK identity | 20 bytes resolved from the ClientKeyExchange |
+| Result with a wrong key | `mbedtls_cipher_auth_decrypt() returned -25344 (-0x6300)` |
+| Error code meaning | `MBEDTLS_ERR_SSL_INVALID_MAC` |
+
+**Proved.** The tracker is not closed to a laptop at all. It opens DTLS toward any central
+that completes the GattLink handshake. The only thing missing is the 16 byte key, and the
+failure with the wrong key is a MAC check, not a policy refusal.
+
+The identity the tracker offered was the same key id and expiry as in the iOS capture, so
+the credential is stable across phones, Macs and days.
+
+## 6. A Flipper Zero as the radio
+
+**Done.** Checked whether a Flipper Zero can stand in for a Bluetooth adapter, as a
+central or as a USB HCI dongle.
+
+**Result.** No on both counts. Stock firmware runs a peripheral only BLE stack on the
+STM32WB55, so it advertises and can act as a keyboard, and cannot initiate connections.
+Official firmware does not expose a USB to HCI transport, so a host computer cannot use it
+as a dongle. It also cannot follow an established connection, so it is not a sniffer.
+
+**Proved.** A Flipper is not useful for this work. It is also not needed: the Mac's own
+radio drives the link fine, as 5b shows. The dongle recommendation was only ever for the
+Android emulator route.
+
+## 7. Ask the public API for the key
 
 **Done.** Read both discovery documents for Google Health API v4.
 
@@ -73,7 +113,7 @@ for 527.
 **Proved.** There is no endpoint to request, and no scope that would unlock one. Stop
 suggesting it.
 
-## 7. Use the old unauthenticated live data characteristic
+## 8. Use the old unauthenticated live data characteristic
 
 **Done.** Checked the tracker for service `558dfa00` and the old live data
 characteristic.
@@ -91,9 +131,11 @@ characteristic.
 | Slice brute force | hours | key is not present |
 | Rooted emulator | half a day | no radio, no peer |
 | Radio bridge | an hour of reading | app must be rebuilt |
-| Mac central | an hour | bond required, and cannot be forced |
+| Bare GATT probe | an hour | incomplete handshake, not a refusal |
+| Full stack, wrong key | an hour | invalid MAC, key required |
 | Public API | minutes | no endpoint |
 | Old stack path | minutes | not on this device |
+| Flipper Zero as radio | minutes | peripheral only, no HCI |
 | Rooted phone that pairs | a device | the only path with a working key |
 
 ## Two firmware notes worth keeping

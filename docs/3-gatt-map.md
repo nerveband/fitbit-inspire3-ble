@@ -94,13 +94,22 @@ different numbers on the next. Handles are assigned per connection by the operat
 system. Always match characteristics by UUID. A parser that matches handles breaks on
 reconnect, which cost an hour during this work.
 
-## Why a laptop cannot open the pipe
+## Why a bare GATT probe sees nothing
 
-Bluetooth pairing normally starts when a client asks for a value that needs a secure
-link. On this tracker every readable value is readable by anyone, so the operating system
-never starts pairing, so the tracker never learns the laptop is a friend.
+This section records an early mistake, because the mistake is instructive. A hand written
+CoreBluetooth probe wrote the GattLink reset byte and then waited. Nothing came back, and
+the first version of these notes concluded that the tracker ignores strangers. That
+conclusion was wrong.
 
-The probe sequence and its result:
+The truth, measured later with the full stack: the tracker answers a reset request, sends
+its own reset request, completes the handshake, and then opens DTLS **toward the Mac** at
+once. See [docs/2](2-how-the-link-works.md) and [docs/6](6-what-we-tried.md). A probe that
+only writes one byte never completes the reset, so the tracker is waiting for a reset
+complete that never arrives, and both sides sit in silence.
+
+So the pipe is not closed to a laptop. It is closed to an incomplete implementation.
+
+What a bare probe saw:
 
 | Step | Result |
 |---|---|
@@ -109,8 +118,25 @@ The probe sequence and its result:
 | Read `ABBAFD01`, `ABBAFD02`, `ABBAFD03` | values returned |
 | Subscribe to `ABBAFF02` | accepted |
 | Write `0x80` reset request to `ABBAFF01` | accepted, no error |
-| Wait for the reset complete, `0x81` | nothing |
-| Wait for any DTLS record | nothing |
+| Wait for the reset complete, `0x81` | nothing, because the probe never sent one back |
+| Wait for any DTLS record | nothing, for the same reason |
 
-So the pipe is open for writes and mute for readers. The tracker only speaks to a peer it
-has bonded with, and it only runs the DTLS handshake with one.
+That is the shape of a half open handshake, not a refusal. Compare
+[6-what-we-tried.md](6-what-we-tried.md) item 5 for the corrected run.
+
+## Link status values, measured
+
+Reading the status values on a live Mac connection returned:
+
+| Field | Value |
+|---|---|
+| connection interval | 30.00 ms |
+| slave latency | 0 |
+| supervision timeout | 720 ms |
+| MTU | 247, which is 244 bytes of payload |
+| bonded | yes, the tracker has bonded to a host before |
+| encrypted | no, this link is not encrypted yet |
+| data length extension | off |
+
+The stack log also calls `AC2F2745` the ephemeral characteristic, which fits a value that
+changes per connection.
