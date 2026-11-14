@@ -32,12 +32,15 @@ BLE                      bonded link, 1 second connection interval in use
 | Cipher suite picked | `0xC0A4` PSK-AES128-CCM | ServerHello bytes |
 | DTLS client | the tracker, not the phone | see [docs/2](docs/2-how-the-link-works.md) |
 | Key identity | 20 byte string `MD-<keyid>-<expiry>`, cleartext | ClientKeyExchange bytes |
-| ATT MTU | phone asks 527, tracker grants 247 | ATT exchange MTU |
+| ATT MTU | phone asks 527, tracker grants 247, so 244 bytes of payload | ATT exchange MTU, and a Mac run |
 | Largest UDP payload | 215 bytes, which is exactly 247 - 3 - 1 - 20 - 8 | frame sizes |
 | Poll rate | 1 request per second, 293 pairs in 16.7 minutes | CoAP app data cadence |
 | Sessions per connection | 3 DTLS sessions, one bootstrap plus two data | separate handshakes |
 | GATT | 5 services, 23 characteristics | macOS CoreBluetooth enumeration |
-| Readable without a bond | identity and two status values, nothing else | macOS probe, 0 notifications |
+| Readable without a bond | identity and status values | macOS probe |
+| Mac as a second central | works, the tracker completes GattLink and opens DTLS toward the Mac | measured 2026-11 |
+| Wrong key failure mode | `MBEDTLS_ERR_SSL_INVALID_MAC`, `-0x6300` | measured with a fake key |
+| Public bootstrap key | completes DTLS, then every data resource returns CoAP `4.01` | measured with a patched reader |
 | Key location | BKS file in the app's private folder, plain, password protected | decompiled app |
 | Public API for the key | none, 27 methods, 2 about devices, both metadata only | Google discovery documents |
 

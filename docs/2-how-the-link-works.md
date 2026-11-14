@@ -122,6 +122,12 @@ encrypt then MAC `0x0016`, extended master secret `0x0017`, session ticket `0x00
 The client sends its key identity in the ClientKeyExchange, in clear: a 2 byte length
 then 20 bytes.
 
+The identity is not always the mobile data one. During local testing the same tracker offered
+`BOOTSTRAP` in some runs, a 9 byte identity whose key is public, and
+`MD-<key id>-<expiry>` in others. The choice belongs to the tracker and appears to depend on
+how it sees the peer. A bootstrap session opens, and every data resource then answers CoAP
+`4.01`.
+
 The stack sizes the connection around the ATT limit, not around the IP limit:
 
 | Value | Size |

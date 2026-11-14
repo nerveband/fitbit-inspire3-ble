@@ -123,6 +123,30 @@ characteristic.
 
 **Proved.** Guides that describe a 16 byte live data frame apply to older Fitbits only.
 
+## 9. Bootstrap credential against the Inspire 3
+
+**Done.** Patched airLocal's key resolver so it answers the `BOOTSTRAP` identity with the
+public key from the open source bindings, then connected a Mac to the Inspire 3.
+
+**Result.** DTLS completed, and every data resource refused:
+
+| Request | Response |
+|---|---|
+| `GET /liveactivity` | `4.01` |
+| `GET /sync/status` | `4.01` |
+| `GET /app/outbox` | `4.01` |
+| `PUT /bond/control` | `4.01` |
+| `GET /.well-known/core` | `4.04` |
+
+**Proved.** The bootstrap credential is a real session, not a rejected one, and it authorizes
+nothing that carries health data. This closes the last hope of skipping the per device key.
+
+**New question it opens.** The tracker offered `BOOTSTRAP` in these runs and
+`MD-<key id>-<expiry>` in earlier ones, on the same Mac. What decides that? A candidate is the
+tracker's view of the peer, and a peer that fails a MAC check may be demoted to bootstrap. A
+test would be: connect with the correct key once, then with a wrong key, and watch which
+identity comes back each time.
+
 ## Summary
 
 | Attempt | Time cost | Ceiling reached |
@@ -133,6 +157,7 @@ characteristic.
 | Radio bridge | an hour of reading | app must be rebuilt |
 | Bare GATT probe | an hour | incomplete handshake, not a refusal |
 | Full stack, wrong key | an hour | invalid MAC, key required |
+| Full stack, public bootstrap key | an hour | session opens, every data resource returns `4.01` |
 | Public API | minutes | no endpoint |
 | Old stack path | minutes | not on this device |
 | Flipper Zero as radio | minutes | peripheral only, no HCI |

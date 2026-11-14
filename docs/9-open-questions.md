@@ -83,15 +83,15 @@ expiry is enforced elsewhere or not at all. That needs a test to confirm.
 
 ## 8. Does the bootstrap session carry the key in any encoded form?
 
-**Why it matters.** It is the last unchecked assumption before accepting that the key only
-arrives from the cloud.
+**Why it matters.** It was the last hope of skipping the per device key.
 
-**Evidence that exists.** 2,861 slices of the decrypted bootstrap session failed as keys.
+**Closed.** Measured on this device. The tracker offers a `BOOTSTRAP` identity, DTLS completes
+with the **public** bootstrap key from the open source bindings, and then every data resource
+returns CoAP `4.01` while `/.well-known/core` returns `4.04`. The bootstrap session is real and
+it authorizes no health data. See [6-what-we-tried.md](6-what-we-tried.md) item 9.
 
-**Narrowed by public work.** Two projects reach a production Fitbit with the public bootstrap
-key and only get settings resources, and `GET liveactivity` over bootstrap returns CoAP
-`4.01`. On this device the tracker always offers its `MD-` identity to a Mac, so a bootstrap
-session cannot be selected from the host side at all. See [10-prior-art.md](10-prior-art.md).
+**Still open from this.** What makes the tracker offer `BOOTSTRAP` rather than
+`MD-<key id>-<expiry>`? Both were observed on the same Mac, in the same hour.
 
 ## 9. New: can the historical dump envelope be opened without the backend?
 

@@ -98,6 +98,35 @@ worth it now that the Mac radio drives the link directly.
 A Flipper Zero is not a substitute: stock firmware is peripheral only, there is no USB to HCI
 transport, and it cannot follow an established connection.
 
+## What we tested on the Inspire 3 with the bootstrap key
+
+Two projects above use the bootstrap credential on an Air and report only settings access. This
+repo took the same idea to the Inspire 3, on a Mac, with a one line change to airLocal's reader
+that lets its key resolver answer the `BOOTSTRAP` identity with the public key.
+
+The tracker offered `BOOTSTRAP` as its PSK identity, the handshake completed, and then every
+resource in reach refused:
+
+| Request | Response | Meaning |
+|---|---|---|
+| `GET /liveactivity` | CoAP `4.01` | Unauthorized |
+| `GET /sync/status` | CoAP `4.01` | Unauthorized |
+| `GET /app/outbox` | CoAP `4.01` | Unauthorized |
+| `PUT /bond/control` | CoAP `4.01` | Unauthorized |
+| `GET /.well-known/core` | CoAP `4.04` | not implemented |
+
+So the bootstrap credential buys an authenticated session, and not one data resource. The
+tracker authorizes per resource, and the mobile data key is what unlocks them.
+
+Two other observations from the same session:
+
+- The tracker sometimes offers the `MD-<key id>-<expiry>` identity instead. In that case a
+  wrong 16 byte key fails at `MBEDTLS_ERR_SSL_INVALID_MAC`, which shows the identity choice is
+  separate from the handshake and probably depends on the tracker's view of the peer.
+- After a handful of quick connect, handshake and abort cycles the tracker stops advertising
+  and handshakes time out. Movement or a button press brings it back. Give it a minute between
+  attempts when testing.
+
 ## The upstream is archived
 
 `Google-Health-API/golden-gate` is archived, last push April 2024, 32 forks, 14 open issues.
