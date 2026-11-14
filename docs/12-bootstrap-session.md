@@ -46,6 +46,62 @@ Queries are refused over bootstrap: `sync/dump?t=primary` and `sync/dump?t=sc` b
 
 So the plain dump is the only form available.
 
+## Probing the methods
+
+Every earlier probe used `GET`. Sending the method each resource actually uses, with an empty
+body, separates "wrong method" from "not allowed", because authorization is checked before the
+body is parsed:
+
+| Request | Code | Reading |
+|---|---|---|
+| `PUT /pair/display` | `2.04` Changed | **accepted with no key** |
+| `POST /sync/dump`, `PUT /sync/dump` | `4.05` | dump is read only |
+| `PUT /sync/response`, `POST /sync/response` | `4.08` | Request Entity Incomplete, so authorized but it wants a body |
+| `POST /sb/records` | `4.01` | unauthorized |
+| `PUT /sb/records`, `PUT /app/inbox`, `PUT /app/outbox`, `PUT /sync/status` | `4.05` | wrong method |
+| `POST /app/inbox` | `4.01` | unauthorized |
+| `PUT /bond/control` | `4.01` | unauthorized |
+| `POST /bond/control` | `4.05` | wrong method |
+| `PUT /sync/config` | `4.01` | unauthorized |
+| `PUT /liveactivity`, `POST /liveactivity` | `4.05` | read only |
+| `PUT /time` | `4.01` | unauthorized |
+| `DELETE /app/outbox` | `4.01` | unauthorized |
+| `PUT /tiles/config`, `POST /tiles/config` | `4.04` | no such resource on this firmware |
+
+Two consequences.
+
+**`PUT /pair/display` is open to an unauthenticated peer.** A stranger inside radio range, with
+the public bootstrap key, can make the tracker show its pairing prompt. That is worth knowing
+about, and it is the only write the bootstrap session allows.
+
+**The namespace is small.** Twenty more guessed names all returned `4.04`: `pairing`, `auth`,
+`session`, `key`, `keys`, `md`, `sync`, `ping`, `node`, `hub`, `params`, `stats`, `metric`,
+`crashdump`, `dfu/control`, `firmware/version`, `tiles`, `app`, `bond`, `bond/status`. What
+exists is the list the app uses, and nothing else.
+
+## Back to back dumps
+
+Four dumps taken in one session, seconds apart:
+
+| Order | Header bytes 5 to 8 | Size | Blocks |
+|---|---|---|---|
+| 1 | `b8 20 2e 52` | 36,453 | 2277 |
+| 2 | `ba 20 2e 52` | 36,629 | 2288 |
+| 3 | `bc 20 2e 52` | 36,805 | 2299 |
+| 4 | `be 20 2e 52` | 32,165 | 2009 |
+
+Three things follow.
+
+**Byte 5 is a counter that advances by 2 per dump.** The rest of the header, including the wire
+id, is fixed.
+
+**While data accumulates the archive grows by 11 blocks, or 176 bytes, per dump.** Then it
+dropped by 290 blocks, which looks like trimming of the oldest records rather than a new format.
+
+**Consecutive dumps share zero 16 byte blocks.** With a growing log and a fixed IV, the shared
+prefix would repeat in the ciphertext. It does not, so encryption is not deterministic: the IV
+or nonce is fresh per dump, or derived from that counter.
+
 ## What the dump contains
 
 Three dumps across a few minutes, all `2.05`:

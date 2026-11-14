@@ -116,6 +116,20 @@ curl -s "https://health.googleapis.com/\$discovery/rest?version=v4" | python3 -m
 Look at `resources.users.resources.pairedDevices`. Two methods, both metadata. No key. Do
 this once and the question is closed.
 
+## Step 7: test a candidate envelope key
+
+Once you hold a key that might open the stored dump:
+
+```
+python3 tools/try_dump_key.py capture1.bin capture2.bin --key-hex <32 hex chars>
+python3 tools/try_dump_key.py capture1.bin capture2.bin --key-file psk.bin
+python3 tools/try_dump_key.py --null 300 capture1.bin     # false positive rate
+```
+
+It needs the `cryptography` package. It reports the best scoring candidate and mode, and it
+requires a hit to look structured in every capture, which is what stops a lucky first block from
+being read as a success. With no key given it tries the public keys as a control.
+
 ## House rules
 
 Test on your own hardware. Do not run the extractor against a phone or an account that is

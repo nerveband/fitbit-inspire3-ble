@@ -85,6 +85,26 @@ the place to look, and it needs a real sync with a real account, plus a hook on 
 path. airLocal's own notes list this as remaining research, so it is not done in public
 either.
 
+## What was actually tried on the real bytes
+
+Seven dumps, 142 KB of ciphertext, and a tool that keeps the method honest
+(`tools/try_dump_key.py`):
+
+| Test | Result |
+|---|---|
+| Duplicate 16 byte blocks | none, at shifts 0, 5, 8 and 16 |
+| Shared blocks between consecutive dumps | none |
+| Compression at the start | no |
+| Public keys tried (`BOOTSTRAP`, the `hello` key, zeros, ASCII guesses) in ECB, CBC with the first block as IV, CBC with a zero IV, and CTR | no hit on any dump |
+| Random key control, 300 keys, 4 modes | 0% false positives at the threshold used |
+
+So the ciphertext is opaque, and so it should be. The point of the tool is that the moment a
+candidate key exists, the answer takes seconds instead of an afternoon.
+
+The most promising candidate is not a guess. The app keeps its keys in a store indexed by key
+id, and the mobile data key is only one entry. If the envelope key is another entry in the same
+store, then a rooted phone hands us both at once, and only the transport key was tested so far.
+
 ## Practical conclusion
 
 | Goal | Route |

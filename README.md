@@ -41,7 +41,8 @@ BLE                      bonded link, 1 second connection interval in use
 | Mac as a second central | works, the tracker completes GattLink and opens DTLS toward the Mac | measured 2026-11 |
 | Wrong key failure mode | `MBEDTLS_ERR_SSL_INVALID_MAC`, `-0x6300` | measured with a fake key |
 | Public bootstrap key | completes DTLS on this device | measured with a patched reader |
-| Bootstrap session authorizes | `GET /sync/dump` only, 33 to 39 KB of data | CoAP path sweep |
+| Bootstrap session authorizes | `GET /sync/dump` and `PUT /pair/display`, nothing live | CoAP method sweep |
+| Empty archive growth | 176 bytes per dump while data accumulates, then trimming | four dumps in one session |
 | Everything else over bootstrap | `4.01` on live resources, `4.04` on paths that do not exist | CoAP path sweep |
 | Key location | BKS file in the app's private folder, plain, password protected | decompiled app |
 | Public API for the key | none, 27 methods, 2 about devices, both metadata only | Google discovery documents |
@@ -79,7 +80,7 @@ for the same reason. Public work reached the same conclusion; see
 | [docs/10-prior-art.md](docs/10-prior-art.md) | who has already solved what, with links |
 | [docs/11-crypto-notes.md](docs/11-crypto-notes.md) | the dump envelope, and why breaking it is not the way |
 | [docs/12-bootstrap-session.md](docs/12-bootstrap-session.md) | the no-key session, its namespace map, and the dump it hands out |
-| [tools/](tools/) | pklg parser, session decoder, CoreBluetooth probes, key extractor |
+| [tools/](tools/) | pklg parser, session decoder, CoreBluetooth probes, key extractor, dump key tester |
 
 ## If you only want the practical answer
 
