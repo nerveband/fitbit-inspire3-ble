@@ -79,6 +79,23 @@ about, and it is the only write the bootstrap session allows.
 `crashdump`, `dfu/control`, `firmware/version`, `tiles`, `app`, `bond`, `bond/status`. What
 exists is the list the app uses, and nothing else.
 
+## Bonding over the bootstrap session: no
+
+Since `PUT /pair/display` is accepted, the obvious next question is whether a stranger can use
+it to bond. Tested: bootstrap handshake, `PUT /pair/display`, then ask macOS for an encrypted
+link.
+
+| Step | Result |
+|---|---|
+| DTLS over `BOOTSTRAP` | established |
+| `PUT /pair/display` | accepted, `2.04` |
+| Request an encrypted BLE link | no encryption, link status still reports `encrypted: no` |
+| Wait for the bond | timed out |
+
+So the accepted write does not open a bonding window. `/bond/control`, the resource that does
+open one, answers `4.01` without the mobile data key. A bond needs the key first, which matches
+the order airLocal documents.
+
 ## Back to back dumps
 
 Four dumps taken in one session, seconds apart:

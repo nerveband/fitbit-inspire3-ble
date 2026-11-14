@@ -144,6 +144,36 @@ app during the test. Whether the pairing step that provisions the key store requ
 passing attestation is not known. Treat it as the main risk for a rooted phone plan, and
 test with the account already holding the paired tracker.
 
+## The app never decrypts the stored archive
+
+This matters for anyone hoping to read history without the tracker key. The upload path in
+`sbe.java` and `qsb.java`:
+
+| Endpoint | Purpose |
+|---|---|
+| `devices/client/tracker/data/pair` | body encoded, sent with a pairing token |
+| `devices/client/tracker/data/validate` | validation |
+| `devices/client/tracker/data/sync` | the dump upload |
+| `devices/client/tracker/data/ack` | acknowledgement with `ackToken` |
+
+The body leaves the app as an encoded blob, `base64` or `hex` according to the
+`Device-Data-Encoding` header, built by a small enum (`sbd`) with exactly those two values. There
+is no decrypt call on that path, and no key is passed to it.
+
+The `challengesRun` and `challengeResults` fields look like cryptography and are not. They are
+counts of sync validation outcomes, from an enum `scj` whose values are `APP_BACKOFF`,
+`SYNCLAIR_BACKOFF`, `MOBILETRACK_BACKOFF`, `RATE_LIMIT`, `INVALID_TIME_STAMP`,
+`OATH_ACCESS_TOKEN`, `VALIDATION`, `SERVER_RESPONSE`, `NOT_LINKED_TRACKER`,
+`DEVICE_IMPAIRED`. That is telemetry about why a sync was retried.
+
+The AES code that does exist in the app belongs to other features: `jii` wraps a data source in
+`AES/CBC/PKCS7Padding` and is constructed by `jit`, a class with `uri` and `drmInitData`, so it
+is media decryption. Others are Android key store helpers and library internals.
+
+Conclusion: the plaintext of a stored archive exists on the tracker and on Google's backend, and
+nowhere in the app. Hooking the app gives you the ciphertext, unless you catch the moment a
+backend reply is cached.
+
 ## Things that looked useful and were not
 
 | Item | Why not |

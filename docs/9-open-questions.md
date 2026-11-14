@@ -103,6 +103,13 @@ no decryption with the transport key. Analysis in [11-crypto-notes.md](11-crypto
 **What would settle it.** Either the envelope key, found in firmware or in a backend request,
 or a hook where a decoded backend response lands in the app's cache.
 
+**State of the chase.** The ciphertext is available on request over the bootstrap session, so the
+problem is only the key. Public keys fail ([11-crypto-notes.md](11-crypto-notes.md)). The app
+never decrypts the archive ([8-app-internals.md](8-app-internals.md)), so an app hook gives
+ciphertext unless it catches a decoded backend reply. That leaves two candidates: a second entry
+in the app's key store, which only a rooted phone can read, or the firmware image. Both need the
+app on an instrumented device.
+
 ## How to record an answer
 
 When one of these gets resolved, put the measurement in the doc that covers the area, add the
