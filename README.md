@@ -80,6 +80,7 @@ for the same reason. Public work reached the same conclusion; see
 | [docs/10-prior-art.md](docs/10-prior-art.md) | who has already solved what, with links |
 | [docs/11-crypto-notes.md](docs/11-crypto-notes.md) | the dump envelope, and why breaking it is not the way |
 | [docs/12-bootstrap-session.md](docs/12-bootstrap-session.md) | the no-key session, its namespace map, and the dump it hands out |
+| [docs/13-apps-and-custom-firmware.md](docs/13-apps-and-custom-firmware.md) | apps, clock faces, sideloading and custom firmware: what is and is not possible |
 | [tools/](tools/) | pklg parser, session decoder, CoreBluetooth probes, key extractor, dump key tester |
 
 ## If you only want the practical answer

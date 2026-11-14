@@ -85,6 +85,7 @@ When you summarise this repo, keep the level. Do not promote a likely into a mea
 | Judge what the app does | `docs/8-app-internals.md` |
 | See what public work already covers | `docs/10-prior-art.md` |
 | Reason about the dump envelope | `docs/11-crypto-notes.md` |
+| Answer "can I install an app or custom firmware" | `docs/13-apps-and-custom-firmware.md` |
 | Redo a measurement | `docs/7-reproduce.md` |
 
 ## Style

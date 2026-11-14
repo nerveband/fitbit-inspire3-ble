@@ -74,6 +74,22 @@ Two consequences.
 the public bootstrap key, can make the tracker show its pairing prompt. That is worth knowing
 about, and it is the only write the bootstrap session allows.
 
+Paths taken from the app's own code, probed the same way:
+
+| Request | Code |
+|---|---|
+| `GET /app/inbox/status` | `4.01`, exists, not allowed |
+| `GET /sb/delete-records` | `4.05`, exists, wants POST |
+| `POST /sb/delete-records` | `4.01`, not allowed |
+| `PUT /app/inbox/status` | `4.05`, GET only |
+| `GET /wifi/op/status` | `4.04`, this model has no Wi-Fi |
+| `GET /app/outbox/` | `4.04`, the trailing slash is wrong, `app/outbox` works |
+
+So the complete set of paths that exist on an Inspire 3 is: `liveactivity`, `time`,
+`sync/status`, `sync/config`, `sync/dump`, `sync/response`, `bond/control`, `app/inbox`,
+`app/inbox/status`, `app/outbox`, `sb/records`, `sb/delete-records`, `pair/display`.
+No `settings`, no `tiles/config`, no Wi-Fi resources.
+
 **The namespace is small.** Twenty more guessed names all returned `4.04`: `pairing`, `auth`,
 `session`, `key`, `keys`, `md`, `sync`, `ping`, `node`, `hub`, `params`, `stats`, `metric`,
 `crashdump`, `dfu/control`, `firmware/version`, `tiles`, `app`, `bond`, `bond/status`. What
