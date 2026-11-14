@@ -85,10 +85,10 @@ expiry is enforced elsewhere or not at all. That needs a test to confirm.
 
 **Why it matters.** It was the last hope of skipping the per device key.
 
-**Closed.** Measured on this device. The tracker offers a `BOOTSTRAP` identity, DTLS completes
-with the **public** bootstrap key from the open source bindings, and then every data resource
-returns CoAP `4.01` while `/.well-known/core` returns `4.04`. The bootstrap session is real and
-it authorizes no health data. See [6-what-we-tried.md](6-what-we-tried.md) item 9.
+**Closed, with a twist.** Measured on this device. DTLS completes with the **public** bootstrap
+key. Live resources return `4.01`, but `GET /sync/dump` returns `2.05` with 33 to 39 KB of
+stored data. So bootstrap authorizes the encrypted archive and nothing live. Map and dump
+layout in [12-bootstrap-session.md](12-bootstrap-session.md).
 
 **Still open from this.** What makes the tracker offer `BOOTSTRAP` rather than
 `MD-<key id>-<expiry>`? Both were observed on the same Mac, in the same hour.

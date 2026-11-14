@@ -37,8 +37,9 @@ When you summarise this repo, keep the level. Do not promote a likely into a mea
   wrong 16 byte key the handshake dies at `MBEDTLS_ERR_SSL_INVALID_MAC` (`-0x6300`).
 - A laptop can bond as a second central by authenticating DTLS first, then `PUT /bond/control`
   with `08 78`, then a secure read. Public work verified this end to end.
-- The tracker may offer a `BOOTSTRAP` identity whose key is public. That session completes, then
-  every data resource returns CoAP `4.01`. Measured on this device.
+- The tracker may offer a `BOOTSTRAP` identity whose key is public. That session completes and
+  `GET /sync/dump` returns 33 to 39 KB of encrypted data, while live resources return `4.01`.
+  CoAP `4.01` means the path exists, `4.04` means it does not. Measured on this device.
 - The per device key is not in the Bluetooth traffic and is not derivable from the handshake.
   2,861 candidate slices of the bootstrap session all failed.
 - Google's Health API v4 has 27 methods and no device key endpoint.
