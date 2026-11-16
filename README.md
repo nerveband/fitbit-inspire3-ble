@@ -4,6 +4,8 @@ Reverse engineering notes for one device: a Fitbit Inspire 3, firmware `63.<vers
 product id 63. The notes cover the Bluetooth stack it speaks, the bytes it sends, and the
 one secret that keeps the data closed.
 
+Start with [NEXT-STEPS.md](NEXT-STEPS.md) if you want to continue the work rather than read it.
+
 Everything here was measured on a device the author owns, or read out of open source
 code, or read out of the app's own decompiled code. Facts that are not measured are
 marked as such. See [AGENTS.md](AGENTS.md) for the confidence rules.
@@ -81,6 +83,9 @@ for the same reason. Public work reached the same conclusion; see
 | [docs/11-crypto-notes.md](docs/11-crypto-notes.md) | the dump envelope, and why breaking it is not the way |
 | [docs/12-bootstrap-session.md](docs/12-bootstrap-session.md) | the no-key session, its namespace map, and the dump it hands out |
 | [docs/13-apps-and-custom-firmware.md](docs/13-apps-and-custom-firmware.md) | apps, clock faces, sideloading and custom firmware: what is and is not possible |
+| [docs/14-no-root-options.md](docs/14-no-root-options.md) | every rootless shortcut, tested, and why none yields the key |
+| [docs/15-health-connect.md](docs/15-health-connect.md) | Health Connect measured, and what it can realistically give |
+| [NEXT-STEPS.md](NEXT-STEPS.md) | state of the work, open threads, commands to resume |
 | [tools/](tools/) | pklg parser, session decoder, CoreBluetooth probes, key extractor, dump key tester |
 
 ## If you only want the practical answer

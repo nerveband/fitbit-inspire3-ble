@@ -13,3 +13,6 @@ blegatt
 # working notes with real device identifiers stay local
 PROTOCOL.md
 CAPTURE.md
+
+# local evidence and patches, never published
+local/

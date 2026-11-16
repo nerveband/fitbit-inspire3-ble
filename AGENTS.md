@@ -86,6 +86,9 @@ When you summarise this repo, keep the level. Do not promote a likely into a mea
 | See what public work already covers | `docs/10-prior-art.md` |
 | Reason about the dump envelope | `docs/11-crypto-notes.md` |
 | Answer "can I install an app or custom firmware" | `docs/13-apps-and-custom-firmware.md` |
+| Continue the project | `NEXT-STEPS.md` |
+| Judge a rootless shortcut claim | `docs/14-no-root-options.md` |
+| Work with Android health data | `docs/15-health-connect.md` |
 | Redo a measurement | `docs/7-reproduce.md` |
 
 ## Style
